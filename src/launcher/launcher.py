@@ -111,7 +111,7 @@ _TRANS = const("""[
 
 # bump up our clock speed so the UI feels smoother
 # (240mhz is the max officially supported, but the default is 160mhz)
-machine.freq(240_000_000)
+#machine.freq(240_000_000)
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ GLOBALS: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
