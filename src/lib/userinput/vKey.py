@@ -18,48 +18,76 @@ Swipe LEFT -> ['RIGHT']，Swipe UP -> ['UP']，Swipe DOWN -> ['DOWN']）。
 实时刷新预览字母，所以必须自己逐帧读原始坐标。既然都要自己逐帧读了，canvas
 部分索性也用同一份坐标流处理掉，避免两条数据源分别维护状态、互相对不上。
 
-=== 屏幕区域划分（物理屏幕 320x172，内容区 240x135 居中靠上时的默认布局）===
+=== 屏幕区域划分 ===
+
+    支持 canvas 贴屏幕顶部或贴屏幕底部两种布局（由 content_y 决定，见
+    __init__ 里 self.gap_y 的计算），不支持 canvas 上下都留白的居中布局。
+
+    下图是 canvas 贴底（content_y = screen_height - content_height，
+    比如 37）时的样子——也就是你现在这版实际在用的布局，ESC/候选区在
+    canvas 上方：
 
     (0,0)                                              (320,0)
       ┌────────┬──────────────────────────────┬────────┐
-      │ 左预览区 │                                │ 右预览区 │   y: 0~135
-      │ 40x135 │        canvas（内容区）          │ 40x135 │
-      │        │        240x135                  │        │
+      │        │                                │        │   y: 0~gap_height
+      │        │        ESC / 候选区预览          │        │   (比如 37)
+      │        │        240 x gap_height         │        │
       ├────────┼──────────────────────────────┼────────┤
-      │ 左锁定区 │           ESC 区域              │ 右锁定区 │   y: 135~172
-      │ 40x37  │           240x37                │ 40x37  │
+      │ 左预览区 │                                │ 右预览区 │
+      │        │        canvas（内容区）          │        │   y: content_y~
+      │        │        240x135                  │        │   screen_height
       └────────┴──────────────────────────────┴────────┘
     (0,172)                                            (320,172)
 
-    - canvas 区域(x: content_x~content_x+content_width, y: 0~content_height)：
-      按原有逻辑处理 Tap(-> ENT) / Swipe(-> 方向键)。
-    - ESC 区域(同 x 范围，y: content_height~screen_height)：点击 -> ESC。
+    - canvas 区域(x: content_x~content_x+content_width,
+      y: content_y~content_y+content_height)：按原有逻辑处理
+      Tap(-> ENT) / Swipe(-> 方向键)。
+    - ESC/候选区(同 x 范围，y 是 canvas 之外剩下的那段 gap_height)：
+      按下瞬间开始显示当前选中行的整行 14 个键（候选预览，见下），
+      抬起时如果没什么明显移动 -> ESC。
     - 左/右两条竖列(x < content_x 或 x >= content_x+content_width，
       y: 0~screen_height 整列)：虚拟键盘的按下识别区，行选择用的是
-      *整个屏幕*的高度(screen_height)按 1/6、3/6、5/6 分四行，不是内容区的
-      135。这一整列里上半部分(y: 0~content_height)用来实时预览选中的字母，
-      下半部分(y: content_height~screen_height)用来显示锁定的功能键标记。
+      *整个屏幕*的高度(screen_height)按 1/6、3/6、5/6 分四行，不是内容区
+      的 135。左右预览区(y: content_y~content_y+content_height，跟 canvas
+      同一段高度)用来实时预览选中的字母；锁定标记区(y 是 gap_y~
+      gap_y+gap_height，跟 ESC/候选区同一段高度)用来显示锁定的功能键
+      标记。
 
 === 虚拟键盘手势规则 ===
     1. 手指在左/右竖列按下 -> 按下 y 坐标（按整屏 1/6,3/6,5/6 比例）选定
-       KEYMAP 的行（0~3），此时还没选中具体的列。
-    2. 手指划入 canvas 的 x 范围内 -> 开始根据当前 x 坐标（相对 canvas 左边
-       缘，按 14 等分）实时选定列（0~13），同步刷新左右两侧的预览文字。
-    3. 手指再次划出 canvas 的 x 范围（不管是划回左边还是右边的竖列）->
+       KEYMAP 的行（0~3），此时立刻在 ESC/候选区把这一整行 14 个键摆出来
+       （候选预览，单字符键白色，功能键用缩写+橙色，见 _get_display_text/
+       _is_function_key）。
+    2. 手指还没进 canvas 前，如果继续上下移动导致换到另一行的判定区间，
+       会实时切换选中的行，候选预览跟着刷新（不再是"按下瞬间定死，之后
+       不能改"，可以先上下滑动挑好行再进 canvas）。
+    3. 手指划入 canvas 的 x 范围内 -> 开始根据当前 x 坐标（相对 canvas 左边
+       缘，按 14 等分）实时选定列（0~13），左右预览区同步刷新选中的大字，
+       候选区里对应那一列会有一个半透明蓝色高亮跟着走。
+    4. 手指再次划出 canvas 的 x 范围（不管是划回左边还是右边的竖列）->
        视为取消，本次触摸剩余时间都不再响应，抬起也不发字符。
-    4. 手指在 canvas 的 x 范围内抬起 -> 发出当前预览的字符（如果是普通字符
+    5. 手指在 canvas 的 x 范围内抬起 -> 发出当前预览的字符（如果是普通字符
        且有 CTL/ALT/OPT 处于锁定态，会和这些锁定的修饰键一起以
        ['CTL', 'x'] 这种形式发出，然后自动解锁；如果选中的是 FN/SHIFT/CTL/
-       ALT/OPT 本身，则只切换锁定状态，不发出字符）。
+       ALT/OPT 本身，则只切换锁定状态，不发出字符）。抬起后候选预览和左右
+       大字预览都会清空。
 
 === 功能键锁定规则 ===
-    - FN / SHIFT 互斥：再次选中同一个会解锁；选中另一个会自动切换过去
-      （二者共用一个 self._charmap 状态：'BASE' / 'FN' / 'SHIFT'）。
-    - CTL / ALT / OPT 可以同时锁定多个（存在一个 set 里）；下一次发出普通
-      字符时，会把当前所有锁定的修饰键和这个字符一起发出，然后清空锁定。
+    - 锁定状态直接存在构造时传入的 locked_keys 列表里（跟 userinput.py 里
+      物理键盘用的 self.locked_keys 是同一个 list 的引用，不是各管各的两
+      份状态）。'FN' in self.locked_keys 这种判断天然就包含了虚拟键盘锁
+      定的结果。
+    - FN / SHIFT 互斥：再次选中同一个会从列表里移除（解锁）；选中另一个
+      会自动把原来那个从列表里移除、换成新选的这个。
+    - CTL / ALT / OPT 可以同时锁定多个；下一次发出普通字符时，会把当前
+      锁定在列表里的这几个和这个字符一起发出，然后把它们从列表里移除。
     - 左右锁定标记区显示的字母：FN->F, SHIFT->S, CTL->C, ALT->A, OPT->O，
       当前所有处于锁定状态的键对应字母拼在一起显示（比如同时锁 CTL 和 ALT
       时显示 "CA"）。
+    - 因为是共享同一个 list，物理键盘那边 handle_locking_keys() 的锁定
+      逻辑不知道"FN/SHIFT 互斥"这条规则，理论上可能出现物理锁了 FN、
+      虚拟又锁了 SHIFT 同时存在于列表里的情况——_current_rows() 里定了
+      SHIFT 优先的规则兜底，不会报错，只是显示上可能不是你预期的那个。
 
 === 使用方式（预留给 userinput.py 接入，接口暂不改动，接入时大概是这样）===
 
@@ -72,6 +100,7 @@ Swipe LEFT -> ['RIGHT']，Swipe UP -> ['UP']，Swipe DOWN -> ['DOWN']）。
         content_y=Display.instance.content_y,
         content_width=Display.instance.content_width,
         content_height=Display.instance.content_height,
+        locked_keys=self.locked_keys,  # 关键：传同一个 list 引用进去
     )
     ...
     # get_new_keys() 里，替换掉原来那段 inline 的 Tap/Swipe 处理:
@@ -81,6 +110,10 @@ Swipe LEFT -> ['RIGHT']，Swipe UP -> ['UP']，Swipe DOWN -> ['DOWN']）。
 
     注意 update() 需要每帧都调用（不只是有触摸事件的时候），因为状态机依赖
     连续的按下/移动/抬起帧序列，跳帧会导致预览卡住或者状态判断错误。
+
+    另外 self.locked_keys 必须在创建 VKey 实例之前就已经存在（UserInput.
+    __init__ 里目前是先 self.locked_keys = []，再往后才做触摸相关的初始化，
+    顺序已经是对的，不用调整）。
 """
 
 import lvgl as lv
@@ -279,7 +312,8 @@ class VKey:
             badge_font=None,
             row_preview_font=None,
             row_preview_small_font=None,
-            debug=False):
+            debug=False,
+            locked_keys=None):
         self.debug = debug
         self.scrn = scrn
         self.screen_width = screen_width
@@ -293,6 +327,11 @@ class VKey:
         self.left_margin_width = content_x
         self.right_margin_width = screen_width - content_x - content_width
         self.badge_zone_height = screen_height - content_height
+        # 空白横条（ESC/候选区/锁定标记）所在的 y 位置：canvas 贴顶
+        # (content_y == 0) 时空白横条在下面；canvas 贴底
+        # (content_y + content_height == screen_height) 时空白横条在上面。
+        # 目前只支持"贴一边"这两种布局。
+        self.gap_y = 0 if content_y > 0 else content_height
 
         # ---- 触摸状态机 ----
         self._state = _ST_IDLE
@@ -303,9 +342,14 @@ class VKey:
         self._row = 0
         self._col = 0
 
-        # ---- 锁定状态（独立于触摸状态机，跨手势保留）----
-        self._charmap = 'BASE'   # 'BASE' / 'FN' / 'SHIFT'
-        self._locked_mods = set()  # 'CTL' / 'ALT' / 'OPT' 的子集
+        # ---- 锁定状态 ----
+        # 直接持有 userinput.py 里 self.locked_keys 这同一个 list 的引用
+        # （不是复制一份），FN/SHIFT/CTL/ALT/OPT 锁定时直接往这个 list 里
+        # append/remove。这样物理键盘那边 get_pressed_keys() 完全不用
+        # 关心虚拟键盘的存在，'FN' in self.locked_keys 天然就包含了虚拟
+        # 键盘锁定的结果。没传 locked_keys 时退化成自己维护一个独立的
+        # list，行为不变，只是不会跟物理键盘共享状态。
+        self._locked_keys = locked_keys if locked_keys is not None else []
 
         self._build_widgets(preview_font, badge_font, row_preview_font, row_preview_small_font)
 
@@ -324,25 +368,25 @@ class VKey:
         #self._row_preview_small_font = row_preview_small_font or _pick_font('LV_FONT_UNSCII_8')
 
         self._preview_left = self._make_label(
-            0, 0, self.left_margin_width, self.content_height, preview_font)
+            0, self.content_y, self.left_margin_width, self.content_height, preview_font)
         self._preview_right = self._make_label(
-            self.content_x + self.content_width, 0,
+            self.content_x + self.content_width, self.content_y,
             self.right_margin_width, self.content_height, preview_font)
 
         self._badge_left = self._make_label(
-            0, self.content_height, self.left_margin_width, self.badge_zone_height, badge_font)
+            0, self.gap_y, self.left_margin_width, self.badge_zone_height, badge_font)
         self._badge_left.set_style_text_color(lv.color_hex(0xFF0000), 0)
 
         self._badge_right = self._make_label(
-            self.content_x + self.content_width, self.content_height,
+            self.content_x + self.content_width, self.gap_y,
             self.right_margin_width, self.badge_zone_height, badge_font)
         self._badge_right.set_style_text_color(lv.color_hex(0xFF0000), 0)
 
-        # ---- 行预览区域：canvas 下方的空白横条 ----
+        # ---- 行预览区域：canvas 旁边的空白横条 ----
         # 用黑色背景的容器来显示/隐藏（不依赖 set_hidden）
         self._row_preview_container = lv.obj(self.scrn)
-        self._row_preview_container.set_pos(self.content_x, 0)
-        self._row_preview_container.set_size(self.content_width, self.content_x)
+        self._row_preview_container.set_pos(self.content_x, self.gap_y)
+        self._row_preview_container.set_size(self.content_width, self.badge_zone_height)
         self._row_preview_container.set_style_bg_color(lv.color_hex(0x000000), 0)  # 默认黑色（隐藏）
         self._row_preview_container.set_style_bg_opa(lv.OPA.COVER, 0)
         self._row_preview_container.set_style_border_width(0, 0)
@@ -370,15 +414,18 @@ class VKey:
             cell.set_size(cell_width, cell_height)
             cell.set_style_text_align(lv.TEXT_ALIGN.CENTER, 0)
             
-            # ---- 关键修改：防止换行 ----
-            # 1. 设置为 CLIP 模式（裁剪超出部分）或 DOT 模式（超出显示...）
-            # 2. 减小字间距 -2 像素
+            # ---- 去掉 cell 的 margin 和 padding ----
+            cell.set_style_pad_all(0, 0)
+            cell.set_style_pad_top(0, 0)
+            cell.set_style_pad_bottom(0, 0)
+            cell.set_style_pad_left(0, 0)
+            cell.set_style_pad_right(0, 0)
+            
+            # ---- 防止换行 ----
             try:
-                # 尝试设置长文本模式为 CLIP（裁剪）
                 cell.set_long_mode(lv.label.LONG_MODE.CLIP)
             except:
                 try:
-                    # 有些版本可能用 LABEL_LONG
                     cell.set_long_mode(lv.LABEL_LONG.CLIP)
                 except:
                     pass
@@ -401,6 +448,15 @@ class VKey:
             hl.set_style_bg_color(lv.color_hex(0x4444FF), 0)
             hl.set_style_bg_opa(lv.OPA.TRANSP, 0)  # 默认透明
             hl.set_style_border_width(0, 0)
+            
+            # ---- 去掉高亮层的 margin 和 padding ----
+            hl.set_style_pad_all(0, 0)
+            hl.set_style_pad_top(0, 0)
+            hl.set_style_pad_bottom(0, 0)
+            hl.set_style_pad_left(0, 0)
+            hl.set_style_pad_right(0, 0)
+            
+            
             self._highlight_cells.append(hl)
 
         self._update_preview_widgets()
@@ -418,73 +474,6 @@ class VKey:
         label.set_text('')
         return label
 
-    '''# ------------------------------------------------------------------
-    # 主入口：每帧调用。points 是 touch.get_current_points() 的返回值
-    # （0 个或 1 个 TouchPoint）。返回本帧要交给 get_new_keys() 的 keylist，
-    # 大多数帧下是空列表 []。
-    # ------------------------------------------------------------------
-    def update(self, points):
-        point = points[0] if points else None
-
-        if point is None:
-            if self._state == _ST_IDLE:
-                return []
-            output = self._handle_release()
-            self._state = _ST_IDLE
-            return output
-
-        x, y = point.x, point.y
-
-        if self._state == _ST_IDLE:
-            self._press_x, self._press_y = x, y
-            self._last_x, self._last_y = x, y
-            zone = self._zone_for(x, y)
-            if zone == 'CANVAS':
-                self._state = _ST_CANVAS
-            elif zone == 'ESC':
-                self._state = _ST_ESC
-            else:
-                self._state = _ST_ARMED
-                self._row = self._row_from_y(y)
-                # 按下时立即显示当前行的预览
-                self._show_row_preview()
-            if self.debug:
-                print('vKey press: raw=(%d,%d) zone=%s row=%s' % (
-                    x, y, zone, self._row if zone == 'MARGIN' else '-'))
-            return []
-
-        self._last_x, self._last_y = x, y
-
-        if self._state == _ST_ARMED:
-            if self._x_in_canvas(x):
-                self._state = _ST_TRACKING
-                self._col = self._col_from_x(x)
-                self._update_preview_widgets()
-                self._update_row_preview_highlight()
-                if self.debug:
-                    print('vKey armed->tracking: raw=(%d,%d) row=%d col=%d char=%r' % (
-                        x, y, self._row, self._col, self._current_char()))
-            return []
-
-        if self._state == _ST_TRACKING:
-            if not self._x_in_canvas(x):
-                self._state = _ST_CANCELLED
-                self._update_preview_widgets()
-                self._hide_row_preview()
-                if self.debug:
-                    print('vKey tracking->cancelled: raw=(%d,%d)' % (x, y))
-            else:
-                self._col = self._col_from_x(x)
-                self._update_preview_widgets()
-                self._update_row_preview_highlight()
-                if self.debug:
-                    print('vKey tracking: raw=(%d,%d) row=%d col=%d char=%r' % (
-                        x, y, self._row, self._col, self._current_char()))
-            return []
-
-        # _ST_CANCELLED / _ST_CANVAS / _ST_ESC：等抬起再处理
-        return []
-        '''
     # ------------------------------------------------------------------
     # 主入口：每帧调用。points 是 touch.get_current_points() 的返回值
     # （0 个或 1 个 TouchPoint）。返回本帧要交给 get_new_keys() 的 keylist，
@@ -567,7 +556,7 @@ class VKey:
     # ------------------------------------------------------------------
     def _zone_for(self, x, y):
         if self._x_in_canvas(x):
-            return 'CANVAS' if y > self.content_y else 'ESC'
+            return 'CANVAS' if self.content_y <= y < self.content_y + self.content_height else 'ESC'
         return 'MARGIN'
 
     def _x_in_canvas(self, x):
@@ -645,10 +634,26 @@ class VKey:
     # ------------------------------------------------------------------
     # 字符发出 + 锁定键处理
     # ------------------------------------------------------------------
+    def get_locked_keys(self):
+        """返回当前处于锁定状态、且是这套虚拟键盘认识的功能键
+        ('FN'/'SHIFT'/'CTL'/'ALT'/'OPT' 的子集)。
+
+        锁定状态已经直接存在传进来的 locked_keys 列表里了，userinput.py
+        那边不需要调用这个方法去同步 get_pressed_keys() 的
+        force_fn/force_shift——直接判断 'FN' in self.locked_keys 就已经
+        包含虚拟键盘锁定的结果。这个方法留着给需要单独读取"虚拟键盘锁定
+        了哪些键"的场景用。
+        """
+        return [k for k in (_CHARMAP_KEYS + _MOD_KEYS) if k in self._locked_keys]
+
     def _current_rows(self):
-        if self._charmap == 'SHIFT':
+        # 正常来说 FN/SHIFT 互斥（vKey 自己切换时会保证这一点），但因为
+        # self._locked_keys 是跟物理键盘共享的同一个 list，物理键盘那边
+        # 的锁定逻辑不知道这个互斥规则，理论上可能出现两个同时在里面的
+        # 情况——这里定一个优先级（SHIFT 优先）保证不会出错。
+        if 'SHIFT' in self._locked_keys:
             return KEYMAP_SHIFT
-        if self._charmap == 'FN':
+        if 'FN' in self._locked_keys:
             return KEYMAP_FN
         return KEYMAP
 
@@ -658,24 +663,32 @@ class VKey:
     def _emit_selected_char(self):
         char = self._current_char()
 
-        if char in _CHARMAP_KEYS:
-            self._charmap = 'BASE' if self._charmap == char else char
-            self._update_lock_badges()
-            return []
-
-        if char in _MOD_KEYS:
-            if char in self._locked_mods:
-                self._locked_mods.discard(char)
+        if char in _CHARMAP_KEYS:  # 'FN' / 'SHIFT'，互斥
+            if char in self._locked_keys:
+                self._locked_keys.remove(char)
             else:
-                self._locked_mods.add(char)
+                other = 'SHIFT' if char == 'FN' else 'FN'
+                if other in self._locked_keys:
+                    self._locked_keys.remove(other)
+                self._locked_keys.append(char)
             self._update_lock_badges()
             return []
 
-        # 普通字符：带上当前所有锁定的修饰键一起发出，然后清空修饰键锁定
+        if char in _MOD_KEYS:  # 'CTL' / 'ALT' / 'OPT'，可以同时锁多个
+            if char in self._locked_keys:
+                self._locked_keys.remove(char)
+            else:
+                self._locked_keys.append(char)
+            self._update_lock_badges()
+            return []
+
+        # 普通字符：带上当前所有锁定的修饰键一起发出，然后清空这几个
         # （FN/SHIFT 的字符表锁定不受影响，会一直保持，直到再次手动切换）
-        output = list(self._locked_mods) + [char]
-        if self._locked_mods:
-            self._locked_mods.clear()
+        active_mods = [k for k in _MOD_KEYS if k in self._locked_keys]
+        output = active_mods + [char]
+        if active_mods:
+            for k in active_mods:
+                self._locked_keys.remove(k)
             self._update_lock_badges()
         return output
 
@@ -733,11 +746,15 @@ class VKey:
         self._row_preview_container.set_style_bg_color(lv.color_hex(0x222222), 0)
         self._row_preview_container.set_style_bg_opa(lv.OPA.COVER, 0)
         
-        # 清除高亮（ARMED 状态下还没有列选择）
+        # 清除高亮
         self._clear_highlights()
 
     def _hide_row_preview(self):
-        """隐藏行预览（用黑色覆盖）"""
+        """隐藏行预览（用黑色覆盖并清空文字）"""
+        # 清空所有格子的文字
+        for cell in self._row_cells:
+            cell.set_text('')
+        
         # 设置为黑色（与背景融合）
         self._row_preview_container.set_style_bg_color(lv.color_hex(0x000000), 0)
         self._row_preview_container.set_style_bg_opa(lv.OPA.COVER, 0)
@@ -753,8 +770,8 @@ class VKey:
         # 高亮当前列
         if 0 <= self._col < len(self._highlight_cells):
             hl = self._highlight_cells[self._col]
-            hl.set_style_bg_opa(lv.OPA.COVER, 0)
-            hl.set_style_bg_color(lv.color_hex(0x4444FF), 0)
+            hl.set_style_bg_opa(lv.OPA._20, 0)
+            hl.set_style_bg_color(lv.color_hex(0x0000FF), 0)
             # 把高亮层移到最前面
             hl.move_foreground()
 
@@ -775,12 +792,7 @@ class VKey:
         self._preview_right.set_text(text)
 
     def _update_lock_badges(self):
-        chars = []
-        if self._charmap != 'BASE':
-            chars.append(_LOCK_BADGE_CHAR[self._charmap])
-        for key in _MOD_KEYS:
-            if key in self._locked_mods:
-                chars.append(_LOCK_BADGE_CHAR[key])
+        chars = [_LOCK_BADGE_CHAR[k] for k in (_CHARMAP_KEYS + _MOD_KEYS) if k in self._locked_keys]
         text = ''.join(chars)
         self._badge_left.set_text(text)
         self._badge_right.set_text(text)

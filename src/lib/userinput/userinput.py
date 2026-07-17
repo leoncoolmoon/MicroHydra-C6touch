@@ -126,6 +126,7 @@ class UserInput(_keys.Keys):
         content_y=Display.instance.content_y,
         content_width=Display.instance.content_width,
         content_height=Display.instance.content_height,
+        locked_keys=self.locked_keys,
     )
 
     def __new__(cls, **kwargs):  # noqa: ARG003, D102
@@ -244,6 +245,8 @@ class UserInput(_keys.Keys):
 
     def get_pressed_keys(self) -> list[str]:
         """Get list of currently pressed keys."""
+        if not getattr(self, 'hardware_available', False):
+            return []
         return super().get_pressed_keys(
             force_fn=('FN' in self.locked_keys),
             force_shift=('SHIFT' in self.locked_keys),
