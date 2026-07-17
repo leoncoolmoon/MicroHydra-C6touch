@@ -77,7 +77,7 @@ class Beeper:
         self.audio = get_instance(Audio)
         self.config = get_instance(Config)
         self.note_buf = []
-        self.timer = Timer(3)
+        self.timer = Timer(0)
 
 
     def stop(self):

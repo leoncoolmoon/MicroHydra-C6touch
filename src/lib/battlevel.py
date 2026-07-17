@@ -21,24 +21,25 @@ class Battery:
     def __init__(self):
         """Create the Battery object."""
         #init the ADC for the battery
+        return
         self.adc = machine.ADC(_MH_BATT_ADC)
         self.adc.atten(machine.ADC.ATTN_11DB) # needed to get appropriate range
 
     def read_pct(self) -> int:
         """Return an approximate battery level as a percentage."""
+        return 50
         raw_value = self.adc.read_uv()
-
         if raw_value <= _MIN_VALUE:
             return 0
         if raw_value >= _MAX_VALUE:
             return 100
-
         delta_value = raw_value - _MIN_VALUE # shift range down
         delta_max = _MAX_VALUE - _MIN_VALUE # shift range down
         return int((delta_value / delta_max) * 100)
 
     def read_level(self) -> int:
         """Read approx battery level on the adc and return as int range 0 (low) to 3 (high)."""
+        return 3
         raw_value = self.adc.read_uv()
         if raw_value < _MIN_VALUE:
             return 0

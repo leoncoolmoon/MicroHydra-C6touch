@@ -66,6 +66,7 @@ _TOKEN_DATA = const(0xFE)
 
 class _SDCard:
     def __init__(self, spi, cs, baudrate=1320000):
+        print("SDcard")
         self.spi = spi
         self.cs = cs
 
@@ -144,6 +145,7 @@ class _SDCard:
         self.init_spi(self.baudrate)
 
     def init_card_v1(self):
+        print("SDcardv1")
         for i in range(_CMD_TIMEOUT):
             time.sleep_ms(50)
             self.cmd(55, 0, 0)
@@ -155,6 +157,7 @@ class _SDCard:
         raise OSError("timeout waiting for v1 card")
 
     def init_card_v2(self):
+        print("SDcardv2")
         for i in range(_CMD_TIMEOUT):
             time.sleep_ms(50)
             self.cmd(58, 0, 0, 4)

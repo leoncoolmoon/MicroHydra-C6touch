@@ -1,32 +1,34 @@
 """This Module provides an easy to use Display object for creating graphics in MicroHydra."""
-
 import machine
+from .jd9853_display import JD9853Display
 
-from . import st7789
-
-
-# ~~~~~ Magic constants:
-_MH_DISPLAY_HEIGHT = const(135)
-_MH_DISPLAY_WIDTH = const(240)
-
+# ~~~~~ Magic constants (ESP32-C6-Touch-LCD-1.47 / jd9853): ~~~~~
+_MH_DISPLAY_HEIGHT = const(320)
+_MH_DISPLAY_WIDTH = const(172)
 _MH_DISPLAY_SPI_ID = const(1)
-_MH_DISPLAY_BAUDRATE = const(40_000_000)
-_MH_DISPLAY_SCK = const(36)
-_MH_DISPLAY_MOSI = const(35)
-_MH_DISPLAY_MISO = const(None)
-_MH_DISPLAY_RESET = const(33)
-_MH_DISPLAY_CS = const(37)
-_MH_DISPLAY_DC = const(34)
-_MH_DISPLAY_BACKLIGHT = const(38)
+_MH_DISPLAY_FREQ = const(40_000_000)
+# ↑ 目前比较保守；这类面板通常能跑到 20-40MHz。
+# 频率越高，show() 里估算的等待时间越短、刷新越快。
+# 建议从当前值往上试(比如 10_000_000 -> 20_000_000 -> 40_000_000)，
+# 出现花屏/撕裂再往下调，找到你这块板子/走线能稳定跑的上限。
+_MH_DISPLAY_SCK = const(1)
+_MH_DISPLAY_MOSI = const(2)
+_MH_DISPLAY_RESET = const(22)
+_MH_DISPLAY_CS = const(14)
+_MH_DISPLAY_DC = const(15)
+_MH_DISPLAY_BACKLIGHT = const(23)
+# 面板原生就是 172x320 竖屏，和原版 135x240 横屏板子不同，
+# 这里先给 0，如果实际显示方向不对，再按需调整（0/1/2/3）。
 _MH_DISPLAY_ROTATION = const(1)
-
-
-class Display(st7789.ST7789):
+_MH_DISPLAY_OFFSET_X = const(0)
+_MH_DISPLAY_OFFSET_Y = const(34)
+s_height = const(135)
+s_width = const(240)
+s_top = const(37)
+class Display(JD9853Display):
     """Main graphics class for MicroHydra.
-
     Subclasses the device-specific display driver.
     """
-
     # Set to True to redraw all overlays next time show is called
     draw_overlays = False
     # A public list of overlay functions, to be called in order.
@@ -34,9 +36,8 @@ class Display(st7789.ST7789):
 
     def __new__(cls, **kwargs):  # noqa: ARG003, D102
         if not hasattr(cls, 'instance'):
-          Display.instance = super().__new__(cls)
+            Display.instance = super().__new__(cls)
         return cls.instance
-
 
     def __init__(
             self,
@@ -44,48 +45,48 @@ class Display(st7789.ST7789):
             use_tiny_buf=False,
             **kwargs):
         """Initialize the Display."""
-        # mh_if TDECK:
-        # # Enable Peripherals:
-        # machine.Pin(10, machine.Pin.OUT, value=1)
-        # mh_end_if
-
         if hasattr(self, 'fbuf'):
             print("WARNING: Display re-initialized.")
+            return
+
+        print(f"Display.__init__: use_tiny_buf={use_tiny_buf}")
+
         super().__init__(
-            machine.SPI(
-                _MH_DISPLAY_SPI_ID,
-                baudrate=_MH_DISPLAY_BAUDRATE,
-                sck=machine.Pin(_MH_DISPLAY_SCK),
-                mosi=machine.Pin(_MH_DISPLAY_MOSI),
-                miso=self._init_pin(_MH_DISPLAY_MISO),
-                ),
-            _MH_DISPLAY_HEIGHT,
             _MH_DISPLAY_WIDTH,
-            reset=self._init_pin(_MH_DISPLAY_RESET, machine.Pin.OUT),
-            cs=machine.Pin(_MH_DISPLAY_CS, machine.Pin.OUT),
-            dc=machine.Pin(_MH_DISPLAY_DC, machine.Pin.OUT),
-            backlight=machine.Pin(_MH_DISPLAY_BACKLIGHT, machine.Pin.OUT),
+            _MH_DISPLAY_HEIGHT,
+            spi_host=_MH_DISPLAY_SPI_ID,
+            mosi=_MH_DISPLAY_MOSI,
+            sck=_MH_DISPLAY_SCK,
+            reset=_MH_DISPLAY_RESET,
+            cs=_MH_DISPLAY_CS,
+            dc=_MH_DISPLAY_DC,
+            backlight=_MH_DISPLAY_BACKLIGHT,
             rotation=_MH_DISPLAY_ROTATION,
-            color_order="BGR",
+            freq=_MH_DISPLAY_FREQ,
+            offset_x=_MH_DISPLAY_OFFSET_X,
+            offset_y=_MH_DISPLAY_OFFSET_Y,
             use_tiny_buf=use_tiny_buf,
+            content_width=s_width,
+            content_height=s_height,
+            content_y = s_top,
             **kwargs,
             )
-        Display.draw_overlays = True  # Draw all overlays once on the first show()
-
+        Display.draw_overlays = True
+        print("Display.__init__: calling first show()")
+        self.show()
+        print("Display.__init__: done")
 
     @staticmethod
-    def _init_pin(target_pin, *args) -> machine.Pin|None:
+    def _init_pin(target_pin, *args) -> machine.Pin | None:
         """For __init__: return a pin if an integer is given, or return None."""
         if target_pin is None:
             return None
         return machine.Pin(target_pin, *args)
 
-
     def _draw_overlays(self):
         """Call each overlay callback in Display.overlay_callbacks."""
         for callback in Display.overlay_callbacks:
             callback(self)
-
 
     def show(self):
         """Write changes to display."""
@@ -93,3 +94,19 @@ class Display(st7789.ST7789):
             self._draw_overlays()
             Display.draw_overlays = False
         super().show()
+        
+    def deinit(self):
+        """Release memory and resources, pull up CS."""
+        
+        try:
+            self.reset()
+            
+            # 拉高 CS
+            if hasattr(self, 'cs') and self.cs is not None:
+                self.cs.value(1)
+                self.cs.init(machine.Pin.OUT, value=1)
+                
+            self.set_power(False)
+            
+        except Exception as e:
+            print(f"Error: {e}")

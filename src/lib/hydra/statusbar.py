@@ -48,7 +48,7 @@ class StatusBar:
         if register_overlay:
             Display.overlay_callbacks.append(self.draw)
             # Set a timer to periodically redraw the clock
-            self.timer = Timer(2, mode=Timer.PERIODIC, period=60_000, callback=self._update_overlay)
+            self.timer = Timer(1, mode=Timer.PERIODIC, period=60_000, callback=self._update_overlay)
 
 
     @staticmethod

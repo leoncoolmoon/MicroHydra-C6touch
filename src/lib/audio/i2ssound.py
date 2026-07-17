@@ -43,9 +43,9 @@ _PERIODS = [ # c-0 thru b-0 - how much to advance a sample pointer per frame for
 _INT_MINVAL = const(-32768)
 _INT_MAXVAL = const(32767)
 
-_MH_I2S_SCK = const(7)
-_MH_I2S_WS = const(5)
-_MH_I2S_SD = const(6)
+_MH_I2S_SCK = const(41)
+_MH_I2S_WS = const(43)
+_MH_I2S_SD = const(42)
 
 
 @micropython.viper
@@ -178,7 +178,7 @@ class I2SSound:
 			sd=_MH_I2S_SD):
 		"""Initialize I2S using the given values."""
 		self._output = I2S(
-			1,
+			0,
 			sck=Pin(sck),
 			ws=Pin(ws),
 			sd=Pin(sd),

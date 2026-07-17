@@ -7,8 +7,8 @@ from .i2ssound import I2SSound
 
 
 _MH_I2S_SCK = const(7)
-_MH_I2S_WS = const(5)
-_MH_I2S_SD = const(6)
+_MH_I2S_WS = const(8)
+_MH_I2S_SD = const(9)
 
 
 

@@ -11,7 +11,7 @@ DEFAULT_CONFIG = const(
 """{
 """
 # mh_if kb_light:
-'"kb_light": false,'
+# '"kb_light": false,'
 # mh_end_if
 """
 "24h_clock": false,

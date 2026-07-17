@@ -53,7 +53,7 @@ from lib.hydra.i18n import I18n
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ _CONSTANTS: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 _MH_DISPLAY_WIDTH = const(240)
 _MH_DISPLAY_HEIGHT = const(135)
-_MH_DISPLAY_BACKLIGHT = const(38)
+_MH_DISPLAY_BACKLIGHT = const(23)
 
 _DISPLAY_WIDTH_HALF = const(_MH_DISPLAY_WIDTH//2)
 
@@ -130,7 +130,7 @@ DISPLAY = display.Display(
     # mh_if spi_ram:
     # use_tiny_buf=False,
     # mh_else:
-    use_tiny_buf=True,
+    use_tiny_buf=False,#True,#true 阻止显示
     # mh_end_if
     )
 
@@ -139,7 +139,8 @@ CONFIG = Config()
 KB = userinput.UserInput()
 STATUSBAR = statusbar.StatusBar()
 
-SD = sdcard.SDCard()
+#SD = sdcard.SDCard() #阻止显示
+
 RTC = machine.RTC()
 
 I18N = I18n(_TRANS)
@@ -162,7 +163,7 @@ def scan_apps():
     global APP_NAMES, APP_PATHS  # noqa: PLW0603
 
     # first we need a list of apps located on the flash or SDCard
-    SD.mount()
+    #SD.mount()
     main_directory = os.listdir("/")
 
     sd_directory = []
@@ -657,9 +658,10 @@ def try_sync_clock():
 def main_loop():
     """Run the main loop."""
     global APP_SELECTOR_INDEX, PREV_SELECTOR_INDEX, SYNCING_CLOCK  # noqa: PLW0603
+    
     # scan apps asap to populate app names/paths and SD
     scan_apps()
-
+    print(f"找到 {len(APP_NAMES)} 个应用")
     # sync our RTC on boot, if set in settings
     SYNCING_CLOCK = CONFIG['sync_clock']
 
@@ -688,32 +690,27 @@ def main_loop():
 
     # init diplsay
     DISPLAY.fill(CONFIG.palette[2])
-
+    
+    #print(CONFIG.palette[2])
     icon = IconWidget()
     icon.draw()
-
+    time.sleep(1) 
+    DISPLAY.show() 
 
     while True:
 
         # ----------------------- check for key presses on the keyboard. Only if they weren't already pressed. ---------
-        new_keys = KB.get_new_keys()
-
-        # mh_if launcher_ext_dir_keys:
+        try:
+            new_keys = KB.get_new_keys()
+        # mh_if CARDPUTER:
         # Cardputer should use extended movement keys in the launcher
-        KB.ext_dir_keys(new_keys)
+            #KB.ext_dir_keys(new_keys)
         # mh_end_if
-
-        # mh_if touchscreen:
-        # # add swipes to direcitonal input
-        # touch_events = KB.get_touch_events()
-        # for event in touch_events:
-        #     if hasattr(event, 'direction'):
-        #         if event.direction == 'RIGHT':
-        #             new_keys.append('LEFT')
-        #         elif event.direction == 'LEFT':
-        #             new_keys.append('RIGHT')
-        # mh_end_if
-
+        except Exception as e:
+            pass
+            #print(f"Hardware initialization failed: {e}")
+        
+        #print(f"newk={new_keys}")
         if new_keys:
 
             # ~~~~~~ check if the arrow keys are newly pressed ~~~~~
@@ -723,7 +720,7 @@ def main_loop():
 
                 # animation:
                 icon.start_scroll(1)
-
+                #print("right")
                 BEEP.play((("D3", 'F3'), "A3"), 20)
 
             elif "LEFT" in new_keys:  # left arrow
@@ -732,7 +729,7 @@ def main_loop():
 
                 # animation:
                 icon.start_scroll(-1)
-
+                #print("left")
                 BEEP.play((("C3", "E3"), "G3"), 20)
 
             # ~~~~~~~~~~ check if GO or ENTER are pressed ~~~~~~~~~~
@@ -764,14 +761,15 @@ def main_loop():
                     # shut off the display
                     DISPLAY.fill(0)
                     DISPLAY.sleep_mode(True)
-                    machine.Pin(_MH_DISPLAY_BACKLIGHT, machine.Pin.OUT).value(0)  # backlight off
-                    DISPLAY.spi.deinit()
+                    #machine.Pin(_MH_DISPLAY_BACKLIGHT, machine.Pin.OUT).value(0)  # backlight off#可以加个转换动画
+                    DISPLAY.deinit()
 
-                    if SD is not None:
-                        try:
+                    
+                    try:
+                        if SD is not None:
                             SD.deinit()
-                        except:
-                            print("Tried to deinit SDCard, but failed.")
+                    except:
+                        print("Tried to deinit SDCard, but failed.")
 
                     BEEP.play(('C4', 'B4', 'C5', 'C5'), 100)
 
@@ -809,7 +807,7 @@ def main_loop():
 
         draw_app_selector(icon)
         DISPLAY.show()
-
+        #print("启动画面已绘制")
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ WIFI and RTC: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

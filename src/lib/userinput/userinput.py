@@ -13,10 +13,8 @@ from lib.display import Display
 from lib.hydra.utils import get_instance
 import machine
 from . import _keys
-
-# mh_if touchscreen:
-# from . import _touch
-# mh_end_if
+from . import _touch
+from . import vKey
 
 
 
@@ -60,9 +58,7 @@ class UserInput(_keys.Keys):
         repeat_ms=80,
         use_sys_commands=True,
         allow_locking_keys=False,
-        # mh_if imu:
-        enable_imu=False,
-        # mh_end_if
+        skip_hardware_init=False,  # 新增标志
         **kwargs):
         """Initialize the input drivers with the given settings."""
         self.config = get_instance(Config)
@@ -82,33 +78,57 @@ class UserInput(_keys.Keys):
         Display.overlay_callbacks.append(self._locked_keys_overlay)
 
         # init _keys.Keys
-        super().__init__(**kwargs)
-
+        #super().__init__(**kwargs)
+        if not skip_hardware_init:
+            try:
+                super().__init__(**kwargs)
+                self.hardware_available = True
+            except Exception as e:
+                print(f"Hardware initialization failed: {e}")
+                print("Continuing in software-only mode...")
+                self.key_state = []
+                self.hardware_available = False
+        else:
+            # 跳过硬件初始化，只设置必要属性
+            print("Continuing in software-only mode...")
+            print("Hardware input initialization skipped")
+            self.key_state = []
+  
         # mh_if kb_light:
         # # keyboard backlight control!
         # self.set_backlight(self.config["kb_light"])
         # mh_end_if
 
-        # mh_if touchscreen:
-        # # setup touch control!
-        # self.touch = _touch.Touch(i2c=self.i2c)
-        # self.get_touch_events = self.touch.get_touch_events
-        # self.get_current_points = self.touch.get_current_points
-        # mh_end_if
-
-        # mh_if imu:
-        # Dynamically import IMU and set it up, if requested.
+        
+        # setup touch control!
+        import axs5106
+        from i2c import I2C
+        touch_i2c_bus = I2C.Bus(host=0, sda=18, scl=19)
+        touch_i2c = I2C.Device(touch_i2c_bus, axs5106.I2C_ADDR, axs5106.BITS)
+        self.touch = _touch.Touch(i2c=touch_i2c)#, debug=True)
+        self.get_touch_events = self.touch.get_touch_events
+        self.get_current_points = self.touch.get_current_points
+        
+        '''
         if enable_imu:
             # We're dynamically importing the IMU module because the bmi270 includes a huge config_file constant.
             from ._imu import IMU  # noqa: PLC0415
-            self.imu = IMU(self.i2c)
+            self.imu = IMU(self.touch_i2c)
         else:
             self.imu = None
-        # mh_end_if
+'''
+            
+        self.vkey = vKey.VKey(
+        scrn=Display.instance.scrn,
+        screen_width=320,
+        screen_height=172,
+        content_x=Display.instance.content_x,
+        content_y=Display.instance.content_y,
+        content_width=Display.instance.content_width,
+        content_height=Display.instance.content_height,
+    )
 
-
-
-    def __new__(cls, **kwargs):  # noqa: ARG004, D102
+    def __new__(cls, **kwargs):  # noqa: ARG003, D102
         if not hasattr(cls, 'instance'):
           cls.instance = super().__new__(cls)
         return cls.instance
@@ -148,7 +168,7 @@ class UserInput(_keys.Keys):
 
         return keylist
 
-
+        '''
     def get_new_keys(self) -> list[str]:
         """Return a list of keys which are newly pressed."""
         self.populate_tracker()
@@ -163,6 +183,63 @@ class UserInput(_keys.Keys):
             self.system_commands(keylist)
 
         return keylist
+'''
+    def get_new_keys(self) -> list:
+        """获取新按键列表"""
+        keylist = []
+        
+        # 物理按键处理
+        try:
+            self.populate_tracker()
+            if self.locking_keys:
+                self.handle_locking_keys()
+            self.get_pressed_keys()
+            keylist = self._get_new_keys()
+            if self.use_sys_commands:
+                self.system_commands(keylist)
+        except Exception as e:
+            # MicroPython 的简单错误处理
+            #print("no physical key input:", e)
+            pass
+        
+        # 触摸事件处理（优先级更高）
+        try:
+            '''
+            touch_events = self.get_touch_events()
+            if touch_events:
+                # 只处理第一个触摸事件（简化）
+                event = touch_events[0]
+                print("user_touch_event=", event)
+                
+                event_type = type(event).__name__
+                if event_type == 'Swipe':
+                    if event.direction == 'RIGHT':
+                        keylist = ['LEFT']
+                    elif event.direction == 'LEFT':
+                        keylist = ['RIGHT']
+                    elif event.direction == 'UP':
+                        keylist = ['UP']
+                    elif event.direction == 'DOWN':
+                        keylist = ['DOWN']
+                elif event_type == 'Tap':#虚拟键盘
+                    if event.x < 240:
+                        keylist = ['ENT']
+                    elif event.y < 86:
+                        keylist = ['ESC']
+                    else:
+                        keylist = ['OPT']
+                    #event.x
+                    #event.y
+                '''
+            vkey_out = self.vkey.update(self.get_current_points())
+            if vkey_out:
+                keylist = vkey_out
+        except Exception as e:
+            print("no touch key input:", e)
+            pass
+
+        return keylist
+
 
 
     def get_pressed_keys(self) -> list[str]:

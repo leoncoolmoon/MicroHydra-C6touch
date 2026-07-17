@@ -5,7 +5,7 @@ import framebuf
 from .palette import Palette
 import lib.hydra.config
 from lib.hydra.utils import get_instance
-from machine import PWM
+# from machine import PWM  # 原代码使用PWM控制背光，已注释
 
 # mh_if frozen:
 # # frozen firmware must access the font as a module,
@@ -56,6 +56,7 @@ class DisplayCore:
         """
         #init the fbuf
         if reserved_bytearray is None:
+            print("DisplayCore: 创建新缓冲区")
             # use_tiny_fbuf tells us to use a smaller framebuffer (4 bits per pixel rather than 16 bits)
             if use_tiny_buf:
                 # round width up to 8 bits
@@ -63,6 +64,9 @@ class DisplayCore:
                 reserved_bytearray = bytearray(size)
             else: # full sized buffer
                 reserved_bytearray = bytearray(height*width*2)
+        else:
+            print(f"DisplayCore: 使用传入的缓冲区，长度: {len(reserved_bytearray)}")
+
 
         self.fbuf = framebuf.FrameBuffer(
             reserved_bytearray,
@@ -83,20 +87,48 @@ class DisplayCore:
         self._show_y_min = width if (rotation % 2 == 1) else height
         self._show_y_max = 0
 
-        self.width = width
-        self.height = height
+        # self.width/self.height 必须和 self.fbuf 实际构造时用的尺寸一致
+        # （rotation 为奇数时同样要对调），否则 _bitmap()/_bitmap_text()
+        # 这类用 viper+ptr16 手动计算内存偏移(stride)的方法会用错行宽，
+        # 导致画面在旋转屏幕上撕裂成一条一条横线。
+        self.width = height if (rotation % 2 == 1) else width
+        self.height = width if (rotation % 2 == 1) else height
         self.needs_swap = needs_swap
-        self.backlight = PWM(backlight, freq=1000, duty_u16=0) if backlight is not None else None
+        
+        # TODO: 适配 ESP32-C6-Touch-LCD-1.47 硬件
+        # 原代码使用 machine.PWM 控制背光，但 ESP32-C6-Touch-LCD-1.47 使用 jd9853 驱动
+        # 的 set_backlight() 方法控制背光。背光亮度值应为 0-100 整数。
+        # 此处保存 backlight 对象（实际是 display 对象），由上层传入
+        # self.backlight = PWM(backlight, freq=1000, duty_u16=0) if backlight is not None else None
+        self.backlight = backlight  # 保存 display 对象引用，用于后续背光控制
+        self._brightness = 100  # 默认亮度 100%
 
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DisplayCore utils: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     def set_brightness(self, brightness: int):
-        """Set backlight PWM using value 0-10."""
+        """Set backlight brightness using value 0-100.
+        
+        TODO: 适配 ESP32-C6-Touch-LCD-1.47 硬件
+        原代码使用 PWM duty 控制背光亮度：
         _MAX_BRIGHT = const(65535)
         _MIN_BRIGHT = const(20000)
         _BRIGHT_STEP = const((_MAX_BRIGHT - _MIN_BRIGHT) // 10)
         brightness = _MAX_BRIGHT if brightness == 10 else _MIN_BRIGHT + _BRIGHT_STEP * brightness
         self.backlight.duty_u16(brightness)
+        
+        新硬件使用 jd9853 驱动的 set_backlight() 方法，亮度值范围 0-100。
+        """
+        # 限制亮度值在 0-100 范围内
+        if brightness < 0:
+            brightness = 0
+        elif brightness > 100:
+            brightness = 100
+        
+        self._brightness = brightness
+        
+        # 如果 backlight 对象存在且有 set_backlight 方法，调用它
+        if self.backlight is not None and hasattr(self.backlight, 'set_backlight'):
+            self.backlight.set_backlight(brightness)
 
 
     def reset_show_y(self) -> tuple[int, int]:
@@ -238,7 +270,7 @@ class DisplayCore:
         )
         color = self._format_color(color)
         self.fbuf.line(x0, y0, x1, y1, color)
-
+        
 
     def rect(self, x: int, y: int, w: int, h: int, color: int, fill: bool = False):  # noqa: FBT002
         """Draw a rectangle at the given location, size and color.
@@ -254,13 +286,13 @@ class DisplayCore:
         color = self._format_color(color)
         self.fbuf.rect(x,y,w,h,color,fill)
 
-
     def fill_rect(self, x:int, y:int, width:int, height:int, color:int):
         """Draw a rectangle at the given location, size and filled with color.
 
         This is just a wrapper for the rect() method,
         and is provided for some compatibility with the original st7789py driver.
         """
+        #print(f"fill_rect: x={x}, y={y}, w={width}, h={height}, color=0x{color:04X}")
         self.rect(x, y, width, height, color, fill=True)
 
 

@@ -11,15 +11,20 @@ import machine
 
 from lib import userinput
 from lib.display import Display
+try:
+    display = get_instance(Display, allow_init=False)
+except:
+    print("no instance, build one")
+    display = Display()
 from lib.hydra import config
 from lib.hydra import menu as hydramenu
 from lib.hydra.i18n import I18n
 from lib.hydra.popup import UIOverlay
-from lib.sdcard import SDCard
+#from lib.sdcard import SDCard
 
 
 # make the animations smooth :)
-machine.freq(240_000_000)
+machine.freq(160_000_000)#frequency must be 20MHz, 40MHz, 80Mhz or 160MHz
 
 # this defines the translations passed to hydra.menu and hydra.popup
 _TRANS = const("""[
@@ -38,7 +43,7 @@ _TRANS = const("""[
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Globals: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-display = Display()
+
 kb = userinput.UserInput()
 config = config.Config()
 I18N = I18n(_TRANS)

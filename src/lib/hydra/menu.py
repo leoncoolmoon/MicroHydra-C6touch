@@ -80,7 +80,7 @@ class Menu:
         - esc_callback (callable|None): callback for handling escape from menu screen
         - i18n (I18n|None): I18n object for translating menu items
         """
-
+        print("manual init")
         # init globals
         global CONFIG, DISPLAY, BEEP  # noqa: PLW0603
 
@@ -214,20 +214,20 @@ class Menu:
         return False
 
 
-    # mh_if touchscreen:
-    # @staticmethod
-    # def _process_touch(keys, kb):
-    #     """Convert swipes and taps to arrows and enters"""
-    #     events = kb.get_touch_events()
-    #     for event in events:
-    #         if hasattr(event, 'direction'):
-    #             # is a swipe
-    #             keys.append(event.direction)
+    
+    @staticmethod
+    def _process_touch(keys, kb):
+        """Convert swipes and taps to arrows and enters"""
+        events = kb.get_touch_events()
+        for event in events:
+            if hasattr(event, 'direction'):
+                # is a swipe
+                keys.append(event.direction)
 
-    #         elif _CONFIRM_MIN_X < event.x < _CONFIRM_MAX_X \
-    #         and _CONFIRM_MIN_Y < event.y < _CONFIRM_MAX_Y:
-    #             keys.append("ENT")
-    # mh_end_if
+            elif _CONFIRM_MIN_X < event.x < _CONFIRM_MAX_X \
+            and _CONFIRM_MIN_Y < event.y < _CONFIRM_MAX_Y:
+                keys.append("ENT")
+    
 
 
     def exit(self):
