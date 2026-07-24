@@ -3,7 +3,6 @@
 通过 loader.get_args() 获取下载参数
 """
 
-import gc
 import os
 import time
 import machine
@@ -23,14 +22,6 @@ _RETRYS = 30
 _MAX_WBITS = 15
 _CHUNK_SIZE = 1024
 
-# ===== 内存监控 =====
-def log_memory(stage):
-    gc.collect()
-    free = gc.mem_free()
-    print(f"[DOWNLOADER] {stage}: free={free}")
-    return free
-
-log_memory("启动")
 
 # ===== 消息处理 =====
 def parse_download_message(msg: str) -> tuple:
@@ -52,14 +43,15 @@ def parse_download_message(msg: str) -> tuple:
     return (None, None, None)
 
 def send_result(status: str, app_name: str, error: str = ""):
-    """发送下载结果到 RTC（供 getapps 读取）"""
-    rtc = machine.RTC()
+
+
     if status == 'DONE':
         msg = f"DOWNLOADER_DONE:{app_name}"
     else:
         msg = f"DOWNLOADER_ERROR:{error}:{app_name}"
-    rtc.memory(msg.encode())
+
     print(f"[DOWNLOADER] 发送结果: {msg}")
+    loader.launch_app("/launcher/getapps", msg)
 
 # ===== WiFi 连接 =====
 def connect_wifi() -> bool:
@@ -94,7 +86,7 @@ def connect_wifi() -> bool:
     
     if nic.isconnected():
         print("[DOWNLOADER] WiFi 已连接")
-        log_memory("WiFi 连接后")
+ 
         return True
     else:
         print("[DOWNLOADER] WiFi 连接失败")
@@ -149,8 +141,7 @@ def download_app(app_name: str, use_compiled: bool = True) -> bool:
     if not connect_wifi():
         send_result('ERROR', app_name, 'wifi_fail')
         return False
-    
-    log_memory("WiFi 连接后")
+
     
     # 2. 获取设备名称
     try:
@@ -194,7 +185,7 @@ def download_app(app_name: str, use_compiled: bool = True) -> bool:
             except Exception as e:
                 print(f"[DOWNLOADER] 解压尝试 {wbits} 失败: {e}")
                 wbits += 1
-                gc.collect()
+
         
         if not extracted:
             print("[DOWNLOADER] 解压失败")
@@ -219,22 +210,14 @@ def download_app(app_name: str, use_compiled: bool = True) -> bool:
 def main():
     """下载器主入口"""
     print("[DOWNLOADER] ===== 启动 =====")
-    log_memory("入口")
+
+
+    msg = loader.get_args()[0]
+    print(f"[DOWNLOADER] loader.get_args(): {msg}")
     
-    # 从 loader.get_args() 获取参数
-    args = loader.get_args()
-    print(f"[DOWNLOADER] loader.get_args(): {args}")
+    # args 格式: ['hydra.downloader'](普通启动)
     
-    # args 格式: ['DOWNLOADER:START:Calculator:compiled', 'hydra.downloader']
-    # 或: ['hydra.downloader'] (普通启动)
-    
-    # 查找下载消息
-    msg = None
-    for arg in args:
-        if arg.startswith('DOWNLOADER:START:'):
-            msg = arg
-            break
-    
+
     if msg:
         print(f"[DOWNLOADER] 下载消息: {msg}")
         
@@ -244,29 +227,17 @@ def main():
             print(f"[DOWNLOADER] 开始下载: {app_name}, compiled={use_compiled}")
             
             # 执行下载
-            success = download_app(app_name, use_compiled)
+            download_app(app_name, use_compiled)
             
             # 清理
             try:
                 network.WLAN(network.STA_IF).active(False)
             except:
                 pass
-            
-            gc.collect()
-            log_memory("下载完成")
-            
-            # 返回主程序
-            print("[DOWNLOADER] 返回主程序...")
-            time.sleep(1)
-            loader.launch_app('/launcher/getapps')
-            return
+
     
-    # 没有有效的下载消息，清除 RTC 并返回
-    print("[DOWNLOADER] 未识别下载消息，返回主程序")
-    rtc = machine.RTC()
-    rtc.memory(b"")
-    time.sleep(1)
-    loader.launch_app('/launcher/getapps')
+    # 没有有效的下载消息
+    send_result('ERROR', "NA", 'No request')
 
 # 直接运行
 main()

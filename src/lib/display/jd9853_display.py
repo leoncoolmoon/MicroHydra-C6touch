@@ -74,7 +74,7 @@ from .displaycore import DisplayCore
 # 或 320*20*2 ≈ 12.8KB(rotation=1时w=320)，都远小于整屏的110KB，
 # 大概率能在 ESP32C6 的 DMA 内存池里稳定申请到。
 # 如果实机测试仍然 MemoryError，把这个数字调小（比如 10 或 5）再试。
-_DMA_BUF_ROWS = const(20)
+_DMA_BUF_ROWS = const(40)#20
 
 
 
@@ -146,7 +146,7 @@ class JD9853Display(DisplayCore):
         self._height = height
         self._rotation = rotation
         self._spi_freq = freq
-
+        self.utf8_font = open("/font/utf8_8x8.bin", "rb", buffering = 0) 
         # === 1. 初始化硬件 ===
         lv.init()
           
@@ -253,12 +253,20 @@ class JD9853Display(DisplayCore):
         gc.collect()
         print(f"Free memory: {gc.mem_free()}")
         
-        # === 4. 画面内容缓冲：lv.canvas，普通 GC 堆，不占用 DMA 池 ===
-        # canvas 必须用 RGB565（不能用 I4/GS4 索引色做目标缓冲区——
-        # LVGL 的软件渲染器不支持索引色作为 canvas 的绘制目标格式，会
-        # 静默回退成 ARGB8888，内存反而变成4字节/像素，比RGB565还大，
-        # 这条路已经验证过是死胡同，不要再往这个方向走）。
-        self._canvas_buf = bytearray(buf_w * buf_h * 2)
+
+        _external_canvas_buf = kwargs.pop('reserved_bytearray', None)
+        _needed_canvas_bytes = buf_w * buf_h * 2
+        if _external_canvas_buf is not None:
+            if len(_external_canvas_buf) < _needed_canvas_bytes:
+                raise ValueError(
+                    'reserved_bytearray 太小：内容区 %dx%d 需要至少 %d 字节，'
+                    '实际传入 %d 字节' % (
+                        buf_w, buf_h, _needed_canvas_bytes, len(_external_canvas_buf))
+                )
+            self._canvas_buf = _external_canvas_buf
+        else:
+            self._canvas_buf = bytearray(_needed_canvas_bytes)
+
         self.canvas = lv.canvas(self.scrn)
         self.canvas.set_buffer(self._canvas_buf, buf_w, buf_h, lv.COLOR_FORMAT.RGB565)
         self.canvas.set_pos(content_x, content_y)

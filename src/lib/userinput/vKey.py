@@ -89,6 +89,17 @@ Swipe LEFT -> ['RIGHT']，Swipe UP -> ['UP']，Swipe DOWN -> ['DOWN']）。
       虚拟又锁了 SHIFT 同时存在于列表里的情况——_current_rows() 里定了
       SHIFT 优先的规则兜底，不会报错，只是显示上可能不是你预期的那个。
 
+=== canvas 内 Tap 的长按/短按规则 ===
+    - 手指在 canvas 区域按下、抬起时相对按下点的位移没有超过
+      swipe_move_thresh（判定为"没怎么动"，也就是 Tap 而不是 Swipe）：
+      再看按住的时长——
+        * 按住时长 >= touch_time_thresh（毫秒）-> 判定为长按，发出 ['ENT']；
+        * 按住时长 <  touch_time_thresh -> 判定为短按（误触/手指刚碰一下
+          就抬起），不发出任何按键，返回 []。
+      这样可以避免手指轻轻扫过 canvas 边缘时被误判成一次完整的回车。
+    - Swipe（位移超过 swipe_move_thresh）不受这条时长规则影响，照样按
+      方向直接判定，跟按住多久无关。
+
 === 使用方式（预留给 userinput.py 接入，接口暂不改动，接入时大概是这样）===
 
     from . import vKey
@@ -117,6 +128,43 @@ Swipe LEFT -> ['RIGHT']，Swipe UP -> ['UP']，Swipe DOWN -> ['DOWN']）。
 """
 
 import lvgl as lv
+
+# MicroPython 大多数端口 time 模块自带 ticks_ms/ticks_diff；极少数老端口
+# 只有 utime 这个名字，这里两个都试一下，实在都没有就退化成用
+# time.time() * 1000 凑合算（精度差一些，但不会直接崩）。
+try:
+    import time
+    time.ticks_ms
+    time.ticks_diff
+except (ImportError, AttributeError):
+    try:
+        import utime as time
+    except ImportError:
+        time = None
+
+try:
+    import machine
+except ImportError:
+    # 方便在电脑上跑单元测试（用假的 lv 模块那种）时 import 不报错。
+    # 真机上 MicroPython 一定有 machine，这个分支不会触发。
+    machine = None
+
+
+def _ticks_ms():
+    """统一的毫秒时间戳获取入口，屏蔽 ticks_ms 是否存在的差异。"""
+    if time is not None and hasattr(time, 'ticks_ms'):
+        return time.ticks_ms()
+    if time is not None:
+        return int(time.time() * 1000)
+    return 0
+
+
+def _ticks_diff(a, b):
+    """统一的毫秒差值计算入口，优先用 ticks_diff（能正确处理回绕），
+    没有的话退化成普通减法。"""
+    if time is not None and hasattr(time, 'ticks_diff'):
+        return time.ticks_diff(a, b)
+    return a - b
 
 
 # ============================================================
@@ -191,24 +239,6 @@ _ST_CANVAS = 4      # 在 canvas 内按下，走 Tap/Swipe 判定
 _ST_ESC = 5         # 在 ESC 区域按下
 
 
-'''def _set_label_clip(label):
-    """尽量把 label 设成不换行/裁切模式，屏蔽掉不同 lvgl 绑定版本里这个
-    枚举名字/挂载位置不一样的问题（比如 LABEL_LONG_MODE 在有的绑定里
-    叫 LABEL_LONG，或者压根挂在 lv.label 下面而不是 lv 顶层）。这里的
-    显示内容本来就是单个字符/最多两三个字母，就算这个设置失败，超长
-    换行的问题基本不会出现，所以找不到就静默跳过，不影响功能。
-    """
-    mode_enum = getattr(lv, 'LABEL_LONG_MODE', None) or getattr(lv, 'LABEL_LONG', None)
-    if mode_enum is None:
-        return
-    mode = getattr(mode_enum, 'CLIP', None) or getattr(mode_enum, 'WRAP', None)
-    if mode is None:
-        return
-    try:
-        label.set_long_mode(mode)
-    except Exception:
-        pass
-'''
 def _set_label_clip(label, letter_space=-4):
     """尽量把 label 设成不换行/裁切模式，并减小字间距
     屏蔽掉不同 lvgl 绑定版本里这个枚举名字/挂载位置不一样的问题
@@ -231,12 +261,13 @@ def _set_label_clip(label, letter_space=-4):
                         label.set_long_mode(mode)
                     except Exception:
                         pass
-    
+
     # 减小字间距，让文字更紧凑，防止换行
     try:
         label.set_style_text_letter_space(letter_space, 0)
     except Exception:
         pass
+
 
 def _is_multichar_key(text):
     """判断是否为多字符功能键（需要特殊显示）"""
@@ -264,21 +295,21 @@ def _get_display_text(key):
         'RIGHT': 'Ri',  # Right
         'CAPS': 'CP',   # Caps Lock (虽然没用到)
     }
-    
+
     if key in special_map:
         return special_map[key]
-    
+
     # F1-F10 显示为 F1~F0 (F10 用 F0 更紧凑)
     if key.startswith('F') and len(key) > 1 and key[1:].isdigit():
         num = int(key[1:])
         if num == 10:
             return 'F0'  # F10 显示为 F0
         return key  # F1-F9 保持原样
-    
+
     # 其他多字符键取首字母（作为后备）
     if _is_multichar_key(key):
         return key[0]
-    
+
     # 普通单字符键直接返回
     return key
 
@@ -286,7 +317,7 @@ def _get_display_text(key):
 def _is_function_key(key):
     """判断是否为功能键（需要特殊颜色/样式）"""
     function_keys = {
-        'BSPC', 'TAB', 'ENT', 'SHIFT', 'ESC', 'SPC', 
+        'BSPC', 'TAB', 'ENT', 'SHIFT', 'ESC', 'SPC',
         'CTL', 'ALT', 'OPT', 'FN', 'DEL',
         'UP', 'DOWN', 'LEFT', 'RIGHT',
         'F1', 'F2', 'F3', 'F4', 'F5', 'F6', 'F7', 'F8', 'F9', 'F10'
@@ -308,12 +339,14 @@ class VKey:
             content_width,
             content_height,
             swipe_move_thresh=20,
+            touch_time_thresh=100,
             preview_font=None,
             badge_font=None,
             row_preview_font=None,
             row_preview_small_font=None,
             debug=False,
-            locked_keys=None):
+            locked_keys=None,
+            g0_pin=9):
         self.debug = debug
         self.scrn = scrn
         self.screen_width = screen_width
@@ -323,7 +356,11 @@ class VKey:
         self.content_width = content_width
         self.content_height = content_height
         self.swipe_move_thresh = swipe_move_thresh
-
+        # 注意：原来这行末尾多了个逗号，会把 touch_time_thresh 变成一个
+        # 元组 (100,) 而不是数字 100，导致后面跟数字比较直接报错——这里
+        # 已经去掉逗号。touch_time_thresh 的单位是毫秒，是区分"长按"
+        # (发 ENT) 和"短按"(不发东西) 的分界线。
+        self.touch_time_thresh = touch_time_thresh
         self.left_margin_width = content_x
         self.right_margin_width = screen_width - content_x - content_width
         self.badge_zone_height = screen_height - content_height
@@ -337,6 +374,9 @@ class VKey:
         self._state = _ST_IDLE
         self._press_x = 0
         self._press_y = 0
+        # 本次触摸按下的时刻（毫秒时间戳），用来在抬起时算出按住了多久，
+        # 从而区分 canvas 内的长按（发 ENT）和短按（不发任何东西）。
+        self._press_time = 0
         self._last_x = 0
         self._last_y = 0
         self._row = 0
@@ -351,6 +391,17 @@ class VKey:
         # list，行为不变，只是不会跟物理键盘共享状态。
         self._locked_keys = locked_keys if locked_keys is not None else []
 
+        # 跟物理版 Keys.get_pressed_keys() 的 self.key_state 语义对齐：
+        # "当前正被按住的键"快照。update() 每次调用都会刷新。
+        # 目前包含两类来源：
+        #   1) 触摸选中的字符（_ST_TRACKING 时最多一个）
+        #   2) G0 物理按键（GPIO9，按下是低电平，跟触摸完全独立，只要
+        #      按住就一直在这个列表里，不受触摸状态机影响）
+        self.key_state = []
+
+        # G0：GPIO9，按下低电平，用内部上拉。传 g0_pin=None 可以彻底
+        # 关掉这颗按键的检测（比如你的板子没接这个按钮）。
+        self._g0 = g0_pin
         self._build_widgets(preview_font, badge_font, row_preview_font, row_preview_small_font)
 
     # ------------------------------------------------------------------
@@ -362,7 +413,7 @@ class VKey:
         # 固件没编译这个字号的话，往下依次退到更小的字号。
         preview_font = preview_font or _pick_font('font_montserrat_16')
         badge_font = badge_font or _pick_font('font_montserrat_14')
-        
+
         # 行预览区域：普通键用稍大字体，功能键用更小字体
         self._row_preview_font = row_preview_font or _pick_font('font_montserrat_12')
         #self._row_preview_small_font = row_preview_small_font or _pick_font('LV_FONT_UNSCII_8')
@@ -390,13 +441,13 @@ class VKey:
         self._row_preview_container.set_style_bg_color(lv.color_hex(0x000000), 0)  # 默认黑色（隐藏）
         self._row_preview_container.set_style_bg_opa(lv.OPA.COVER, 0)
         self._row_preview_container.set_style_border_width(0, 0)
-        
+
         self._row_preview_container.set_style_pad_all(0, 0)
         self._row_preview_container.set_style_pad_top(0, 0)
         self._row_preview_container.set_style_pad_bottom(0, 0)
         self._row_preview_container.set_style_pad_left(0, 0)
         self._row_preview_container.set_style_pad_right(0, 0)
-        
+
         try:
             self._row_preview_container.set_scrollbar_mode(lv.SCROLLBAR_MODE.OFF)
         except:
@@ -413,14 +464,14 @@ class VKey:
             cell.set_pos(i * cell_width, 0)
             cell.set_size(cell_width, cell_height)
             cell.set_style_text_align(lv.TEXT_ALIGN.CENTER, 0)
-            
+
             # ---- 去掉 cell 的 margin 和 padding ----
             cell.set_style_pad_all(0, 0)
             cell.set_style_pad_top(0, 0)
             cell.set_style_pad_bottom(0, 0)
             cell.set_style_pad_left(0, 0)
             cell.set_style_pad_right(0, 0)
-            
+
             # ---- 防止换行 ----
             try:
                 cell.set_long_mode(lv.label.LONG_MODE.CLIP)
@@ -429,10 +480,10 @@ class VKey:
                     cell.set_long_mode(lv.LABEL_LONG.CLIP)
                 except:
                     pass
-            
+
             # 设置字间距为 -2（减小间距，让文字更紧凑）
             cell.set_style_text_letter_space(-4, 0)
-            
+
             # 默认使用普通字体，后面会根据按键类型切换
             cell.set_style_text_font(self._row_preview_font, 0)
             cell.set_style_text_color(lv.color_hex(0xFFFFFF), 0)
@@ -448,21 +499,20 @@ class VKey:
             hl.set_style_bg_color(lv.color_hex(0x4444FF), 0)
             hl.set_style_bg_opa(lv.OPA.TRANSP, 0)  # 默认透明
             hl.set_style_border_width(0, 0)
-            
+
             # ---- 去掉高亮层的 margin 和 padding ----
             hl.set_style_pad_all(0, 0)
             hl.set_style_pad_top(0, 0)
             hl.set_style_pad_bottom(0, 0)
             hl.set_style_pad_left(0, 0)
             hl.set_style_pad_right(0, 0)
-            
-            
+
             self._highlight_cells.append(hl)
 
         self._update_preview_widgets()
         self._update_lock_badges()
         self._hide_row_preview()
-        
+
     def _make_label(self, x, y, w, h, font):
         label = lv.label(self.scrn)
         label.set_pos(x, y)
@@ -480,6 +530,32 @@ class VKey:
     # 大多数帧下是空列表 []。
     # ------------------------------------------------------------------
     def update(self, points):
+
+        output = self._update_impl(points)
+        g0k = machine.Pin(self._g0, machine.Pin.IN, machine.Pin.PULL_UP).value() == 0
+        #print(f"output={output},g0k={g0k}")
+        if g0k:
+            self.key_state = ['G0']
+        else:
+            self.key_state = output
+
+        return self.key_state
+
+    def get_pressed_keys(self):
+        """跟物理版 Keys.get_pressed_keys() 的接口对齐：返回"当前正被
+        按住"的虚拟键列表（其实就是 self.key_state，这里包一层方法只是
+        为了让只会调方法、不会去读属性的外部代码也能用）。
+
+        注意跟物理版不是完全一回事：
+        - 物理版可以同时有好几个键（比如 CTL+a），这里单指触摸最多同时
+          一个。
+        - 物理版调用这个方法本身会触发一次硬件 scan()；这里不会做任何
+          触摸轮询，只是读取上一次 update() 算出来的状态——真正驱动
+          轮询的还是每帧调用的 update()。
+        """
+        return list(self.key_state)
+
+    def _update_impl(self, points):
         point = points[0] if points else None
 
         if point is None:
@@ -493,6 +569,7 @@ class VKey:
 
         if self._state == _ST_IDLE:
             self._press_x, self._press_y = x, y
+            self._press_time = _ticks_ms()  # 记下按下时刻，供抬起时算长/短按
             self._last_x, self._last_y = x, y
             zone = self._zone_for(x, y)
             if zone == 'CANVAS':
@@ -521,7 +598,7 @@ class VKey:
                 self._show_row_preview()
                 if self.debug:
                     print('vKey armed: row changed to %d (y=%d)' % (self._row, y))
-            
+
             # 检查是否进入 canvas
             if self._x_in_canvas(x):
                 self._state = _ST_TRACKING
@@ -551,6 +628,7 @@ class VKey:
 
         # _ST_CANCELLED / _ST_CANVAS / _ST_ESC：等抬起再处理
         return []
+
     # ------------------------------------------------------------------
     # 区域判定
     # ------------------------------------------------------------------
@@ -600,14 +678,23 @@ class VKey:
         if state == _ST_CANVAS:
             dx = self._last_x - self._press_x
             dy = self._last_y - self._press_y
+            # 按住了多久（毫秒），用来区分长按/短按
+            held_ms = _ticks_diff(_ticks_ms(), self._press_time)
             if abs(dx) < self.swipe_move_thresh and abs(dy) < self.swipe_move_thresh:
-                output = ['ENT']
+                # 位移没超过阈值 -> 判定为 Tap（不是 Swipe），
+                # 再按时长区分长按/短按：
+                #   长按（held_ms >= touch_time_thresh）-> 发 ENT
+                #   短按（held_ms <  touch_time_thresh）-> 什么都不发
+                if held_ms >= self.touch_time_thresh:
+                    output = ['ENT']
+                else:
+                    output = []
             else:
                 direction = self._direction(dx, dy)
                 output = [_SWIPE_TO_KEY[direction]]
             if self.debug:
-                print('vKey release: state=CANVAS press=(%d,%d) last=(%d,%d) dx=%d dy=%d -> %r' % (
-                    self._press_x, self._press_y, self._last_x, self._last_y, dx, dy, output))
+                print('vKey release: state=CANVAS press=(%d,%d) last=(%d,%d) dx=%d dy=%d held=%dms -> %r' % (
+                    self._press_x, self._press_y, self._last_x, self._last_y, dx, dy, held_ms, output))
             return output
 
         if state == _ST_ESC:
@@ -695,57 +782,30 @@ class VKey:
     # ------------------------------------------------------------------
     # 行预览显示控制（用黑色背景覆盖来实现隐藏/显示）
     # ------------------------------------------------------------------
-    '''def _show_row_preview(self):
-        """显示当前行的 14 个按键"""
-        row_keys = self._current_rows()[self._row]
-        
-        # 更新每个格子的文字
-        for i, key in enumerate(row_keys):
-            if i < len(self._row_cells):
-                display_text = _get_display_text(key)
-                self._row_cells[i].set_text(display_text)
-                
-                # 判断是否功能键
-                is_func = _is_function_key(key)
-                
-                # 功能键用更小字体 + 橙色，普通键用正常字体 + 白色
-                if is_func:
-                    #self._row_cells[i].set_style_text_font(self._row_preview_small_font, 0)
-                    self._row_cells[i].set_style_text_color(lv.color_hex(0xFFA500), 0)
-                else:
-                    self._row_cells[i].set_style_text_font(self._row_preview_font, 0)
-                    self._row_cells[i].set_style_text_color(lv.color_hex(0xFFFFFF), 0)
-        
-        # 显示容器：改为深灰色背景（不是黑色）
-        self._row_preview_container.set_style_bg_color(lv.color_hex(0x222222), 0)
-        self._row_preview_container.set_style_bg_opa(lv.OPA.COVER, 0)
-        
-        # 清除高亮
-        self._clear_highlights()'''
     def _show_row_preview(self):
         """显示当前行的 14 个按键"""
         row_keys = self._current_rows()[self._row]
-        
+
         # 更新每个格子的文字
         for i, key in enumerate(row_keys):
             if i < len(self._row_cells):
                 display_text = _get_display_text(key)
                 self._row_cells[i].set_text(display_text)
-                
+
                 # 判断是否功能键
                 is_func = _is_function_key(key)
-                
+
                 # 功能键用更小字体 + 橙色，普通键用正常字体 + 白色
                 if is_func:
                     self._row_cells[i].set_style_text_color(lv.color_hex(0xFFA500), 0)
                 else:
                     self._row_cells[i].set_style_text_font(self._row_preview_font, 0)
                     self._row_cells[i].set_style_text_color(lv.color_hex(0xFFFFFF), 0)
-        
+
         # 显示容器：改为深灰色背景
         self._row_preview_container.set_style_bg_color(lv.color_hex(0x222222), 0)
         self._row_preview_container.set_style_bg_opa(lv.OPA.COVER, 0)
-        
+
         # 清除高亮
         self._clear_highlights()
 
@@ -754,7 +814,7 @@ class VKey:
         # 清空所有格子的文字
         for cell in self._row_cells:
             cell.set_text('')
-        
+
         # 设置为黑色（与背景融合）
         self._row_preview_container.set_style_bg_color(lv.color_hex(0x000000), 0)
         self._row_preview_container.set_style_bg_opa(lv.OPA.COVER, 0)
@@ -764,9 +824,9 @@ class VKey:
         """更新当前列的高亮"""
         if self._state != _ST_TRACKING:
             return
-        
+
         self._clear_highlights()
-        
+
         # 高亮当前列
         if 0 <= self._col < len(self._highlight_cells):
             hl = self._highlight_cells[self._col]

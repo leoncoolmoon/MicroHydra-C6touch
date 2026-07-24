@@ -11,7 +11,7 @@ _MAX_VALUE = const(2100000) # 4.2v
 _LOW_THRESH = const(_MIN_VALUE + ((_MAX_VALUE - _MIN_VALUE) // 3))
 _HIGH_THRESH = const(_LOW_THRESH + ((_MAX_VALUE - _MIN_VALUE) // 3))
 
-_MH_BATT_ADC = const(10)
+_MH_BATT_ADC = const(0)
 
 
 # CLASS Battery:

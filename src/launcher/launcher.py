@@ -45,7 +45,7 @@ from font import vga2_16x32 as font
 from launcher.icons import appicons
 from lib import battlevel, display, sdcard, userinput
 from lib.display.rawbitmap import RawBitmap
-from lib.hydra import beeper, loader, statusbar
+from lib.hydra import beeper, loader, statusbar, popup
 from lib.hydra.config import Config
 from lib.hydra.i18n import I18n
 
@@ -140,10 +140,10 @@ KB = userinput.UserInput()
 STATUSBAR = statusbar.StatusBar()
 
 #SD = sdcard.SDCard() #阻止显示
-
 RTC = machine.RTC()
 
 I18N = I18n(_TRANS)
+overlay = popup.UIOverlay(i18n=I18N)
 
 SYNC_NTP_ATTEMPTS = 0
 CONNECT_WIFI_ATTEMPTS = 0
@@ -613,7 +613,6 @@ _MAX_NTP_ATTEMPTS = const(10)
 def try_sync_clock():
     """Try syncing the RTC using ntptime."""
     global SYNCING_CLOCK, SYNC_NTP_ATTEMPTS, CONNECT_WIFI_ATTEMPTS  # noqa: PLW0603
-
     if NIC.isconnected():
         try:
             ntptime.settime()
@@ -648,8 +647,42 @@ def try_sync_clock():
     else:
         CONNECT_WIFI_ATTEMPTS += 1
 
+def ext_options(overlay):
+    """Create popup with options for new file or directory."""
+    options = [ "Reset","USB Mode"]
+    ip_address = NIC.ifconfig()[0] if (NIC and NIC.isconnected()) else ""
+    option = overlay.popup_options(options, title=f"Option - {ip_address}")
+    if option == "Reset":
+        overlay.draw_textbox("Restarting...")
+        DISPLAY.show()
+        machine.reset()
+
+    elif option == "USB Mode":
+        overlay.draw_textbox("USB Mode...")
+        DISPLAY.show()
+        #raise KeyboardInterrupt("程序已手动停止，REPL 已就绪。")
+        launch_app("/lib/replMode")
 
 
+def launch():
+    # save CONFIG if it has been changed:
+        CONFIG.save()
+
+        # shut off the display
+        DISPLAY.fill(0)
+        DISPLAY.sleep_mode(True)
+        #machine.Pin(_MH_DISPLAY_BACKLIGHT, machine.Pin.OUT).value(0)  # backlight off#可以加个转换动画
+        DISPLAY.deinit()
+
+        try:
+            if SD is not None:
+                SD.deinit()
+        except:
+            print("Tried to deinit SDCard, but failed.")
+
+        BEEP.play(('C4', 'B4', 'C5', 'C5'), 100)
+
+        launch_app(APP_PATHS[APP_NAMES[APP_SELECTOR_INDEX]])
 # --------------------------------------------------------------------------------------------------
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Main Loop: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -658,24 +691,27 @@ def try_sync_clock():
 def main_loop():
     """Run the main loop."""
     global APP_SELECTOR_INDEX, PREV_SELECTOR_INDEX, SYNCING_CLOCK  # noqa: PLW0603
-    
     # scan apps asap to populate app names/paths and SD
     scan_apps()
     print(f"找到 {len(APP_NAMES)} 个应用")
     # sync our RTC on boot, if set in settings
     SYNCING_CLOCK = CONFIG['sync_clock']
-
+    print(f"SYNCING_CLOCK={SYNCING_CLOCK}")
     if (CONFIG['wifi_ssid'] == ''
-    or RTC.datetime()[0] != 2000
+    or RTC.datetime()[0] <=2000#!= 2000
     or NIC is None):
         SYNCING_CLOCK = False
-
+    print(f"SYNCING_CLOCK={SYNCING_CLOCK}")
     if SYNCING_CLOCK:  # enable wifi if we are syncing the clock
+        
         if not NIC.active():  # turn on wifi if it isn't already
             NIC.active(True)
         if not NIC.isconnected():  # try connecting
+            print("try connect WIFI")
             try:
                 NIC.connect(CONFIG['wifi_ssid'], CONFIG['wifi_pass'])
+                ip_address = NIC.ifconfig()[0] if (NIC and NIC.isconnected())   else ""
+                print(f"connected to {ip_address}")
             except OSError as e:
                 print("wifi_sync_rtc had this error when connecting:", e)
 
@@ -690,13 +726,15 @@ def main_loop():
 
     # init diplsay
     DISPLAY.fill(CONFIG.palette[2])
-    
-    #print(CONFIG.palette[2])
+
     icon = IconWidget()
     icon.draw()
     time.sleep(1) 
-    DISPLAY.show() 
-
+    DISPLAY.show()
+    try:
+        new_keys = KB.get_new_keys()
+    except Exception as e:
+        pass
     while True:
 
         # ----------------------- check for key presses on the keyboard. Only if they weren't already pressed. ---------
@@ -720,7 +758,7 @@ def main_loop():
 
                 # animation:
                 icon.start_scroll(1)
-                #print("right")
+
                 BEEP.play((("D3", 'F3'), "A3"), 20)
 
             elif "LEFT" in new_keys:  # left arrow
@@ -729,11 +767,13 @@ def main_loop():
 
                 # animation:
                 icon.start_scroll(-1)
-                #print("left")
+
                 BEEP.play((("C3", "E3"), "G3"), 20)
 
             # ~~~~~~~~~~ check if GO or ENTER are pressed ~~~~~~~~~~
-            if "G0" in new_keys or "ENT" in new_keys:
+            if "G0" in new_keys:
+                ext_options(overlay)
+            if "ENT" in new_keys:
 
                 # special "settings" app options will have their own behaviour, otherwise launch the app
                 if APP_NAMES[APP_SELECTOR_INDEX] == "UI Sound":
@@ -755,25 +795,7 @@ def main_loop():
 
                 else:  # ~~~~~~~~~~~~~~~~~~~ LAUNCH THE APP! ~~~~~~~~~~~~~~~~~~~~
 
-                    # save CONFIG if it has been changed:
-                    CONFIG.save()
-
-                    # shut off the display
-                    DISPLAY.fill(0)
-                    DISPLAY.sleep_mode(True)
-                    #machine.Pin(_MH_DISPLAY_BACKLIGHT, machine.Pin.OUT).value(0)  # backlight off#可以加个转换动画
-                    DISPLAY.deinit()
-
-                    
-                    try:
-                        if SD is not None:
-                            SD.deinit()
-                    except:
-                        print("Tried to deinit SDCard, but failed.")
-
-                    BEEP.play(('C4', 'B4', 'C5', 'C5'), 100)
-
-                    launch_app(APP_PATHS[APP_NAMES[APP_SELECTOR_INDEX]])
+                    launch()
 
             else:  # keyboard shortcuts!
                 for key in new_keys:
@@ -807,7 +829,7 @@ def main_loop():
 
         draw_app_selector(icon)
         DISPLAY.show()
-        #print("启动画面已绘制")
+
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ WIFI and RTC: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
         # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -33,6 +33,7 @@ import lvgl as lv
 TouchPoint = namedtuple("TouchPoint", ["id", "x", "y", "size"])
 
 Tap = namedtuple("Tap", ['x', 'y', 'size', 'duration'])
+Long_tap = namedtuple("Tap", ['x', 'y', 'size', 'duration'])
 Swipe = namedtuple("Swipe", ['x0', 'y0', 'x1', 'y1', 'size', 'duration', 'distance', 'direction'])
 
 
@@ -67,6 +68,7 @@ class TouchEvent:
     逻辑和 gt911.py 完全一致，和具体芯片无关。
     """
     swipe_move_thresh = 30
+    touch_time_thresh = 100
 
     def __init__(self, point=None):
         if point:
@@ -108,13 +110,20 @@ class TouchEvent:
         return minisqrt((x * x) + (y * y))
 
     def _finish_tap(self, touch_time, touch_dist):
-        return Tap(
-            (self.start_x + self.new_x) // 2,
-            (self.start_y + self.new_y) // 2,
-            (self.start_size + self.new_size) // 2,
-            touch_time,
-        )
-
+        if touch_time < TouchEvent.touch_time_thresh:
+            return Tap(
+                    (self.start_x + self.new_x) // 2,
+                    (self.start_y + self.new_y) // 2,
+                    (self.start_size + self.new_size) // 2,
+                    touch_time,
+                    )
+        else:
+            return Long_tap(
+                        (self.start_x + self.new_x) // 2,
+                        (self.start_y + self.new_y) // 2,
+                        (self.start_size + self.new_size) // 2,
+                        touch_time,
+                        )
     @micropython.viper
     def _swipe_dir(self):
         x0 = int(self.start_x)
@@ -157,7 +166,6 @@ class TouchEvent:
         touch_dist = self._point_dist()
         if touch_dist < TouchEvent.swipe_move_thresh:
             return self._finish_tap(touch_time, touch_dist)
-
         return self._finish_swipe(touch_time, touch_dist)
 
 
@@ -172,7 +180,7 @@ class Touch:
     原始寄存器数据，所以 tracker 只有1个槽位，固定用 id=0。
     """
 
-    def __init__(self, i2c, reset_pin=20, touch_cal_name='touch_cal', swipe_move_thresh=20, debug=False):
+    def __init__(self, i2c, reset_pin=20, touch_cal_name='touch_cal', swipe_move_thresh=20, touch_time_thresh=100, debug=False):
         self.debug = debug
         # 情况一：传进来的已经是建好的 axs5106 indev（有 get_state/_last_x），直接用
         if hasattr(i2c, 'get_state') and hasattr(i2c, '_last_x'):
@@ -208,6 +216,7 @@ class Touch:
                 touch_cal.save()
 
         TouchEvent.swipe_move_thresh = swipe_move_thresh
+        TouchEvent.touch_time_thresh = touch_time_thresh
         self.tracker = [TouchEvent()]
 
         # 用于手动推进 LVGL tick（见 get_current_points 里的说明）

@@ -11,7 +11,7 @@ from .cursor import Cursor
 from .undomanager import UndoManager
 
 from esp32 import NVS
-from lib.sdcard import SDCard
+#from lib.sdcard import SDCard
 from lib.display import Display
 from lib.hydra.config import Config
 from lib.userinput import UserInput
@@ -53,9 +53,9 @@ _FILE_BROWSER = const("/launcher/files")
 
 
 # increased to full freq.
-machine.freq(240_000_000)
+#machine.freq(240_000_000)
 # sd needs to be mounted for any files in /sd
-SDCard().mount()
+#SDCard().mount()
 
 
 
@@ -66,17 +66,15 @@ class Editor:
         """Initialize HyDE."""
         self.display = Display()
         self.config = Config()
-        self.overlay = UIOverlay()
-
+        self.overlay = UIOverlay()#载入了键盘
         tokenizer.init(self.config)
 
         self.statusbar = StatusBar(register_overlay=False)
-        self.inpt = UserInput(allow_locking_keys=True)
-
+        #self.inpt = UserInput(allow_locking_keys=True, skip_hardware_init=True)#再次载入了键盘
+        self.inpt = self.overlay.kb
         self.cursor = Cursor()
         self.select_cursor = None
         self.clipboard = ""
-
         self.undomanager = UndoManager(self, self.cursor)
 
         self.lines = None

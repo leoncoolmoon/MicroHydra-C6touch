@@ -7,18 +7,12 @@ _MH_DISPLAY_HEIGHT = const(320)
 _MH_DISPLAY_WIDTH = const(172)
 _MH_DISPLAY_SPI_ID = const(1)
 _MH_DISPLAY_FREQ = const(40_000_000)
-# ↑ 目前比较保守；这类面板通常能跑到 20-40MHz。
-# 频率越高，show() 里估算的等待时间越短、刷新越快。
-# 建议从当前值往上试(比如 10_000_000 -> 20_000_000 -> 40_000_000)，
-# 出现花屏/撕裂再往下调，找到你这块板子/走线能稳定跑的上限。
 _MH_DISPLAY_SCK = const(1)
 _MH_DISPLAY_MOSI = const(2)
 _MH_DISPLAY_RESET = const(22)
 _MH_DISPLAY_CS = const(14)
 _MH_DISPLAY_DC = const(15)
 _MH_DISPLAY_BACKLIGHT = const(23)
-# 面板原生就是 172x320 竖屏，和原版 135x240 横屏板子不同，
-# 这里先给 0，如果实际显示方向不对，再按需调整（0/1/2/3）。
 _MH_DISPLAY_ROTATION = const(1)
 _MH_DISPLAY_OFFSET_X = const(0)
 _MH_DISPLAY_OFFSET_Y = const(34)

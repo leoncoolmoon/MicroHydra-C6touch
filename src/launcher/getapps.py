@@ -5,33 +5,23 @@ which was contributed to the MH apps repo with commit 014f080.
 Thank you for your contributions!
 """
 
-import ujson as json
+
+
+import json
 import os
 import sys
 import time
 
-import machine
 import network
 import requests
-import gc
+
 from lib.device import Device
 from lib.hydra.config import Config
 from lib.hydra.i18n import I18n
 from lib.hydra.simpleterminal import SimpleTerminal
 from lib.zipextractor import ZipExtractor
+from lib.hydra import loader
 
-# ===== 内存监控工具 =====
-def log_memory(stage: str):
-    """记录内存使用情况"""
-    gc.collect()
-    free = gc.mem_free()
-    alloc = gc.mem_alloc()
-    total = free + alloc
-    print(f"[MEM] {stage}: free={free}, alloc={alloc}, total={total}")
-    return free
-
-# 启动内存
-log_memory("启动")
 
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ _CONSTANTS: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 _MH_DISPLAY_HEIGHT = const(135)
@@ -60,17 +50,12 @@ _TRANS = const("""[
 {"en": "Description:", "zh": "描述:", "ja": "説明:"}
 ]""")  # noqa: E501
 
-print("getapps!")
-
 # ===== 延迟初始化：先只加载必要的模块 =====
 CONFIG = Config()
-log_memory("Config 加载后")
 
 NIC = network.WLAN(network.STA_IF)
-log_memory("WiFi 对象创建后")
 
-# ===== 注意：先不加载 Display、UserInput、SimpleTerminal、I18N =====
-# 这些会占用大量内存，我们在网络请求完成后再加载
+
 
 # --------------------------------------------------------------------------------------------------
 # -------------------------------------- function_definitions: -------------------------------------
@@ -90,8 +75,8 @@ def goto_Setting():
     time.sleep_ms(500)
     while not INPUT.get_new_keys():
         time.sleep_ms(10)
-    machine.RTC().memory("/launcher/settings")
-    machine.reset()
+    loader.launch_app("/launcher/settings")
+
 
 def check_wifi():
     """Verify WiFi has been configured, print error and exit if not."""
@@ -109,24 +94,25 @@ def connect_wifi():
         NIC.active(True)
 
     if not NIC.isconnected():
+        # tell wifi to connect (with FORCE)
         while True:
-            try:
+            try:  # keep trying until connect command works
                 NIC.connect(CONFIG['wifi_ssid'], CONFIG['wifi_pass'])
-                print(f"SSID={CONFIG['wifi_ssid']},PASS={CONFIG['wifi_pass']}")
                 break
             except OSError as e:
                 print(f"Error: {e}")
                 time.sleep_ms(500)
 
+        # now wait until connected
         attempts = 0
         while not NIC.isconnected() and attempts < _RETRYS:
             print(f"connecting... {attempts+1}")
             time.sleep_ms(1000)
             attempts += 1
-    
+
     if NIC.isconnected():
         print("Connected!")
-        log_memory("WiFi 连接后")
+
     else:
         print("Unable to connect!")
         goto_Setting()
@@ -134,10 +120,6 @@ def connect_wifi():
 def request_file(file_path: str) -> requests.Response:
     """Get the specific app file from GitHub."""
     print(f"{Device.name} Making request...")
-    
-    # 记录请求前内存
-    log_memory("请求前")
-    
     response = requests.get(
         f'https://raw.githubusercontent.com/echo-lalia/MicroHydra-Apps/main/catalog-output/{file_path}',
         headers={
@@ -146,147 +128,67 @@ def request_file(file_path: str) -> requests.Response:
         },
         timeout=30
     )
-    
-    # 记录请求后内存
-    log_memory(f"请求后 (状态码: {response.status_code})")
-    
     print(f"Returned code: {response.status_code}")
     return response
 
+
 def try_request_file(file_path: str) -> requests.Response:
     """Capture errors and keep trying to get requested file."""
-    wait = 1
+    wait = 1  # time to wait between attempts (don't get rate limited)
     while True:
         try:
             return request_file(file_path)
         except (OSError, ValueError, MemoryError) as e:
             print(f"Request failed: {e}")
-            # 检查是否是内存问题
-            gc.collect()
-            free = gc.mem_free()
-            print(f"失败后内存: {free}")
-            if "ENOMEM" in str(e) or "12" in str(e):
-                print("⚠️ 内存不足！尝试强制清理...")
-                for _ in range(5):
-                    gc.collect()
-                    time.sleep_ms(50)
-                free_after = gc.mem_free()
-                print(f"清理后内存: {free_after}")
-                if free_after == free:
-                    print("❌ 内存清理无效，可能是总内存不足")
-            time.sleep(wait)
-            wait += 1
-            if wait > 10:
-                wait = 10
+            
 
 def fetch_app_catalog() -> dict:
     """Download compact app catalog from apps repo."""
-    
-    log_memory("开始获取应用目录")
+
     print("Getting app catalog...")
-    
-    # 多次强制 GC
-    for _ in range(5):
-        gc.collect()
-        time.sleep_ms(20)
-    
-    log_memory("GC 清理后")
-    
+
     response = try_request_file(f"{Device.name.lower()}.json")
-    
+
     # 记录响应内容大小
     content_size = len(response.content)
     print(f"响应内容大小: {content_size} 字节 ({content_size/1024:.1f} KB)")
-    log_memory("JSON 解析前")
-    
     try:
         result = json.loads(response.content)
-        log_memory("JSON 解析后")
         print(f"解析成功，应用数量: {len(result)-1}")
     except MemoryError as e:
         print(f"JSON 解析内存不足: {e}")
-        log_memory("JSON 解析失败")
         raise
     finally:
         response.close()
         del response
-        gc.collect()
-        log_memory("响应对象释放后")
-    
     return result
 
-_MAX_WBITS = const(15)
 
-def fetch_app(app_name, mpy_matches):
-    """触发应用下载（通过独立的下载器）"""
-    from lib.hydra import loader
-    
-    # 1. 清理内存
-    gc.collect()
-    print(f"[GETAPPS] 触发下载: {app_name}")
-    
-    # 2. 写入 RTC 消息（标准化格式）
-    rtc = machine.RTC()
-    compiled = "compiled" if mpy_matches else "raw"
-    msg = f"DOWNLOADER:START:{app_name}:{compiled}"
-    rtc.memory(msg.encode())
-    print(f"[GETAPPS] RTC 已写入: {msg}")
-    
-    # 3. 显示提示（如果有显示可用）
-    try:
-        DISPLAY.fill(CONFIG.palette[2])
-        DISPLAY.text(
-            "Downloading...",
-            _DISPLAY_WIDTH_HALF - 60,
-            _MH_DISPLAY_HEIGHT // 2 - 4,
-            CONFIG.palette[8]
-        )
-        DISPLAY.text(
-            "System will restart",
-            _DISPLAY_WIDTH_HALF - 70,
-            _MH_DISPLAY_HEIGHT // 2 + 16,
-            CONFIG.palette[6]
-        )
-        DISPLAY.show()
-        time.sleep(1)
-    except:
-        print("[GETAPPS] 下载中，系统即将重启...")
-        time.sleep(1)
-    
-    # 4. 关闭 WiFi（释放资源）
-    try:
-        NIC.active(False)
-    except:
-        pass
-    
-    # 5. 通过 loader 启动下载器
-    print("[GETAPPS] 启动下载器...")
-    time.sleep_ms(500)
-    
-    # 使用模块路径（不包含 /lib/ 前缀）
-    loader.launch_app('hydra.downloader')
+_MAX_WBITS = const(15)
+def fetch_app(app_name, mpy_matches, overlay,DISPLAY):
+    """解析下载消息: DOWNLOADER:START:app_name:compiled"""
+    overlay.draw_textbox("Downloading...")
+    DISPLAY.show()
+    compiled_path = "compiled" if mpy_matches else "raw"
+    msg = f"DOWNLOADER:START:{app_name}:{compiled_path}"
+    loader.launch_app("/lib/hydra/downloader", msg)
+
+
 # ===== 现在加载显示相关模块（在获取数据后） =====
 def init_display_modules():
     """延迟加载显示、输入、终端和国际化模块"""
     from lib.display import Display
     from lib import userinput
     from lib.hydra.simpleterminal import SimpleTerminal
-    
-    log_memory("加载显示模块前")
+    from lib.hydra import popup
     
     DISPLAY = Display(use_tiny_buf=False)
-    log_memory("Display 加载后")
-    
     INPUT = userinput.UserInput()
-    log_memory("UserInput 加载后")
-    
-    TERM = SimpleTerminal()
-    log_memory("SimpleTerminal 加载后")
-    
+    TERM = SimpleTerminal()    
     I18N = I18n(_TRANS)
-    log_memory("I18N 加载后")
+    overlay = popup.UIOverlay(i18n=I18N)
     
-    return DISPLAY, INPUT, TERM, I18N
+    return DISPLAY, INPUT, TERM, I18N, overlay
 
 # --------------------------------------------------------------------------------------------------
 # ---------------------------------------- ClassDefinitions: ---------------------------------------
@@ -297,6 +199,7 @@ _NAME_Y = const(_MH_DISPLAY_HEIGHT // 4 - 8)
 _DESC_Y = const(_AUTHOR_Y + _NAME_Y + 6)
 _MAX_H_CHARS = const(_MH_DISPLAY_WIDTH // 8)
 
+
 class CatalogDisplay:
     """Construct for displaying and selecting catalog options."""
 
@@ -306,31 +209,42 @@ class CatalogDisplay:
         self.INPUT = input_obj
         self.TERM = term
         self.I18N = i18n
-        self.CONFIG = CONFIG
-        
+        self.CONFIG = CONFIG 
         self.mpy_version = catalog.pop("mpy_version")
+
         self.names = list(catalog.keys())
+        # sort alphabetically without uppercase/lowercase discrimination:
         self.names.sort(key=lambda st: st.lower())
+
         self.catalog = catalog
+
         self.idx = 0
 
     def move(self, val: int):
+        """Move the selector index by `val`."""
         self.idx += val
         self.idx %= len(self.names)
 
+
     def jump_to(self, letter):
+        """Jump to the next app that starts with the given letter."""
+        # search for that letter in the app list
         for i in range(1, len(self.names)):
+            # scan to the right, starting at self.idx
             i = (i + self.idx) % len(self.names)
             name = self.names[i]
             if name.lower().startswith(letter):
                 self.idx = i
                 return
 
+
     @staticmethod
     def split_lines(text: str) -> list:
+        """Split a string into multiple lines, based on max line-length."""
         lines = []
         current_line = ''
         words = text.split()
+
         for word in words:
             if len(word) + len(current_line) >= _MAX_H_CHARS:
                 lines.append(current_line)
@@ -339,11 +253,16 @@ class CatalogDisplay:
                 current_line += word
             else:
                 current_line += ' ' + word
-        lines.append(current_line)
+
+        lines.append(current_line)  # add final line
+
         return lines
 
+
     def draw(self):
+        """Draw the selected option to the display."""
         name = self.names[self.idx]
+        # separate author
         *desc, author = self.catalog[name].split(' - ')
         desc = ' - '.join(desc)
 
@@ -366,75 +285,48 @@ class CatalogDisplay:
             desc_y += 9
 
 
+# --------------------------------------------------------------------------------------------------
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ Main Loop: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 def main_loop():
-    
-    print("getapps_main")    
-    # === 检查下载状态 ===
-    rtc = machine.RTC()
-    rtc_mem = rtc.memory()
-    
-    if isinstance(rtc_mem, bytes):
-        try:
-            rtc_str = rtc_mem.decode('utf-8')
-        except:
-            rtc_str = ""
-    else:
-        rtc_str = ""
-    
+    str_msg = loader.get_args()[0]
+ 
     # 检查下载完成
-    if rtc_str.startswith("DOWNLOADER_DONE:"):
-        app_name = rtc_str.replace("DOWNLOADER_DONE:", "")
+    if str_msg.startswith("DOWNLOADER_DONE:"):
+        app_name = str_msg.replace("DOWNLOADER_DONE:", "")
         print(f"[GETAPPS] 应用下载完成: {app_name}")
-        rtc.memory(b"")
         show_done_msg = app_name
-    elif rtc_str.startswith("DOWNLOADER_ERROR:"):
+    elif str_msg.startswith("DOWNLOADER_ERROR:"):
         # 解析错误信息
-        parts = rtc_str.split(':')
+        parts = str_msg.split(':')
         if len(parts) >= 3:
             error_type = parts[1]
             app_name = parts[2] if len(parts) > 2 else "unknown"
             print(f"[GETAPPS] 下载失败: {error_type} - {app_name}")
-        rtc.memory(b"")
         show_done_msg = None
     else:
         show_done_msg = None
-    
-    # === 继续原来的 main_loop 逻辑 ===
-    log_memory("进入 main_loop")
-    
+
     """Run the main loop of the program."""
-    
-    print("getapps_main_checkwifi") 
-    # 1. WiFi 连接（不需要显示）
+
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ INITIALIZATION: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     check_wifi()
     connect_wifi()
-    print("getapps_main_done_wifi") 
-    # 2. 获取数据（不需要显示）
-    log_memory("获取数据前")
     catalog = fetch_app_catalog()
-    log_memory("获取数据后")
-    
-    # 3. 现在才加载显示相关模块
-    log_memory("加载显示模块前")
-    DISPLAY, INPUT, TERM, I18N = init_display_modules()
-    log_memory("显示模块加载完成")
-    
-    # 4. 对比 MPY 版本
+
+    DISPLAY, INPUT, TERM, I18N, overlay = init_display_modules()
     mpy_str = f"{sys.implementation._mpy & 0xff}.{sys.implementation._mpy >> 8 & 3}"
     mpy_matches = (mpy_str == catalog["mpy_version"])
-    
+    print (overlay)
+    # sleep so user can see confirmation message
     time.sleep_ms(400)
-    
-    # 5. 创建显示对象
-    log_memory("创建 CatalogDisplay 前")
+
     catalog_display = CatalogDisplay(catalog, DISPLAY, INPUT, TERM, I18N)
     catalog_display.draw()
-    log_memory("CatalogDisplay 创建后")
-    
-    # 添加提示
+
+    # Add usage hint
     DISPLAY.text(
         "Select an app to download:",
         _DISPLAY_WIDTH_HALF - 104,
@@ -448,22 +340,19 @@ def main_loop():
         CONFIG.palette[0],
     )
     DISPLAY.show()
-    log_memory("显示完成")
     if show_done_msg:
-        # 在目录列表上方显示完成通知
-        DISPLAY.text(
-            f"✓ {show_done_msg} installed!",
-            _DISPLAY_WIDTH_HALF - 80,
-            2,
-            CONFIG.palette[8]  # 亮色
-        )
+        overlay.draw_textbox(f"✓ {show_done_msg} installed!")
         DISPLAY.show()
         time.sleep(2)
-    # 6. 主循环
+
     while True:
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ INPUT: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # get list of newly pressed keys
         keys = INPUT.get_new_keys()
         INPUT.ext_dir_keys(keys)
 
+        # if there are keys, convert them to a string, and store for display
         if keys:
             for key in keys:
                 if key == 'RIGHT':
@@ -471,18 +360,26 @@ def main_loop():
                 elif key == 'LEFT':
                     catalog_display.move(-1)
                 elif key in {'G0', 'ENT', 'SPC'}:
-                    fetch_app(catalog_display.names[catalog_display.idx], mpy_matches)
+                    fetch_app(catalog_display.names[catalog_display.idx], mpy_matches, overlay, DISPLAY)
                     time.sleep(2)
+
                 elif key in {'ESC', 'BSPC'}:
                     NIC.active(False)
                     machine.reset()
+
                 elif len(key) == 1:
                     catalog_display.jump_to(key)
 
             catalog_display.draw()
             DISPLAY.show()
 
+
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ HOUSEKEEPING: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+        # do nothing for 10 milliseconds
         time.sleep_ms(10)
 
 
+
+# start the main loop
 main_loop()

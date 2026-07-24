@@ -238,7 +238,7 @@ class UserInput(_keys.Keys):
         except Exception as e:
             print("no touch key input:", e)
             pass
-
+        #print(f"key={keylist}")
         return keylist
 
 

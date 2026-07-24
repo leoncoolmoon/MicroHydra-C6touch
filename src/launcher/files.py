@@ -10,7 +10,7 @@ import os
 import time
 
 from font import vga2_16x32 as font
-from lib import sdcard, userinput
+from lib import userinput #,sdcard
 from lib.display import Display
 from lib.hydra import beeper, popup, loader
 from lib.hydra.config import Config
@@ -89,14 +89,14 @@ FILE_HANDLERS = {
 
 I18N = I18n(_TRANS)
 
-kb = userinput.UserInput()
 tft = Display()
+kb = userinput.UserInput()
 
 config = Config()
 beep = beeper.Beeper()
 overlay = popup.UIOverlay(i18n=I18N)
 
-sd = sdcard.SDCard()
+#sd = sdcard.SDCard()
 
 # copied_file = None
 clipboard = None
@@ -350,7 +350,7 @@ def ext_options(overlay):
 
     elif option == "Refresh":
         beep.play(("B3", "G3", "D3"), 30)
-        sd.mount()
+        #sd.mount()
         os.sync()
 
     elif option == "Paste":
@@ -554,7 +554,7 @@ def main_loop(tft, kb, config, overlay):
     """Run the main loop."""
 
     new_keys = kb.get_new_keys()
-    sd.mount()
+    #sd.mount()
     file_list, dir_dict = parse_files()
 
     view = ListView(tft, config, file_list, dir_dict)
