@@ -23,8 +23,9 @@
 
 
 # MicroHydra-C6touch
-MicroHydra-C6touch based on MicroHydra, a simple MicroPython based app launcher with some OS-like features. Add support for [ESP32-C6-Touch-LCD-1.47](https://docs.waveshare.com/ESP32-C6-Touch-LCD-1.47)
-Add special touch slid keybroad, improve the menu in launcher and file
+MicroHydra-C6touch based on MicroHydra, a simple MicroPython based app launcher with some OS-like features. 
+Support for [ESP32-C6-Touch-LCD-1.47](https://docs.waveshare.com/ESP32-C6-Touch-LCD-1.47)（original 240x135 res）the blank space is used for a special touch slid keybroad 
+improve the menu in launcher and file
 
 <p align="center">
   <img src="https://github.com/echo-lalia/Cardputer-MicroHydra/assets/108598670/15b78e4b-64fc-433a-86d3-979362abd9ab" alt="Microhydra Banner"/>
@@ -62,7 +63,245 @@ For example, when you use the Files app to open a file in the text editor, the F
 
 <br /><br /><br />
 
+# how the touch keybroad works:
 
+## Overview
+
+A touchscreen virtual keyboard that uses **edge-sliding from both left and right sides** to select keys. Supports both left-handed and right-handed operation.
+
+---
+
+## Screen Layout (320×172)
+
+```
+(0,0)                                              (320,0)
+  ┌────────┬──────────────────────────────┬────────┐
+  │  Left  │                              │ Right  │
+  │  Edge  │    ESC / Candidate Preview   │  Edge  │
+  │ Touch  │   (Full Row Key Preview)     │ Touch  │
+  │  Zone  ├──────────────────────────────┤  Zone  │
+  │        │                              │        │
+  │  Left  │        Canvas Area           │ Right  │
+  │Preview │     Gesture Main Zone        │Preview │
+  │        │                              │        │
+  └────────┴──────────────────────────────┴────────┘
+(0,172)                                            (320,172)
+```
+
+| Area | Function |
+|------|----------|
+| **Left/Right Edge** | Touch here to start key selection (30px wide) |
+| **Canvas** | Main area for selecting columns and gestures |
+| **ESC/Preview** | Shows current row's 14 keys |
+| **Lock Badge** | Displays locked keys (F/S/C/A/O) |
+| **Preview** | Shows currently selected key |
+
+---
+
+## Core Input: Edge-Slide to Select
+
+### Left/Right Symmetry
+
+| Hand | Start | Slide Direction |
+|------|-------|-----------------|
+| **Right-handed** | Right edge | **Left** into Canvas |
+| **Left-handed** | Left edge | **Right** into Canvas |
+
+### Three Steps
+
+```
+Step 1: Touch edge → select ROW (vertical position)
+              ↓
+Step 2: Slide inward → select COLUMN (horizontal distance)
+              ↓
+Step 3: Release in Canvas → confirm input
+```
+
+### Step 1: Select Row (Vertical Position)
+
+| Position | Row | Keys |
+|----------|-----|------|
+| Top (0~28px) | Row 0 | `` ` 1 2 3 4 5 6 7 8 9 0 - = BSPC `` |
+| Mid (28~86px) | Row 1 | `TAB q w e r t y u i o p [ ] \` |
+| Mid-low (86~143px) | Row 2 | `FN SHIFT a s d f g h j k l ; ' ENT` |
+| Bottom (143~172px) | Row 3 | `CTL OPT ALT z x c v b n m , . / SPC` |
+
+**Feedback**: Preview area instantly shows all 14 keys in that row.
+
+### Step 2: Select Column (Horizontal Distance)
+
+- **20 pixels per column**
+- **14 columns** (0–13)
+- Slide left/right to adjust selection
+
+**Feedback**:
+- Large character shown in left/right preview areas
+- Semi-transparent blue highlight on selected column
+
+### Step 3: Confirm or Cancel
+
+| Action | Result |
+|--------|--------|
+| Release **inside** Canvas | ✅ Input selected key |
+| Release **outside** Canvas | ❌ Cancel (no output) |
+| Slide **out of** Canvas | ❌ Cancel (no output) |
+
+---
+
+## Quick Gestures
+
+### Canvas Area Gestures
+
+| Gesture | Condition | Output |
+|---------|-----------|--------|
+| **Tap** | Movement < 20px | `['ENT']` |
+| **Swipe Right** | ≥20px right | `['LEFT']` |
+| **Swipe Left** | ≥20px left | `['RIGHT']` |
+| **Swipe Up** | ≥20px up | `['UP']` |
+| **Swipe Down** | ≥20px down | `['DOWN']` |
+
+### ESC Area
+
+| Action | Output |
+|--------|--------|
+| Tap in ESC area | `['ESC']` |
+| Swipe in ESC area | (no output) |
+
+### G0 Menu Button (GPIO9)
+
+| Action | Output | Purpose |
+|--------|--------|---------|
+| Press G0 | `['G0']` | Open/trigger menu |
+
+- Physical button, independent of touch
+- Always responsive
+
+---
+
+## Lock Key Mechanism
+
+### Display
+
+Lock badge shows currently locked keys:
+
+| Locked | Display |
+|--------|---------|
+| FN | `F` |
+| SHIFT | `S` |
+| CTL+ALT | `CA` |
+| None | (blank) |
+
+### Key Types
+
+| Type | Keys | Behavior |
+|------|------|----------|
+| **Exclusive** | FN, SHIFT | Only one can be locked at a time |
+| **Accumulative** | CTL, ALT, OPT | Multiple can be locked; auto-unlock after output |
+
+### Examples
+
+| Lock State | Select | Output |
+|------------|--------|--------|
+| None | `a` | `['a']` |
+| FN locked | `F1` | `['F1']` |
+| SHIFT locked | `1` | `['!']` |
+| CTL locked | `c` | `['CTL', 'c']` |
+| CTL+ALT locked | `x` | `['CTL', 'ALT', 'x']` |
+
+---
+
+## Key Maps
+
+### Normal (No Lock)
+
+| Row | Keys |
+|-----|------|
+| 0 | `` ` 1 2 3 4 5 6 7 8 9 0 - = BSPC `` |
+| 1 | `TAB q w e r t y u i o p [ ] \` |
+| 2 | `FN SHIFT a s d f g h j k l ; ' ENT` |
+| 3 | `CTL OPT ALT z x c v b n m , . / SPC` |
+
+### Shift Layer
+
+| Row | Keys |
+|-----|------|
+| 0 | `~ ! @ # $ % ^ & * ( ) _ + BSPC` |
+| 1 | `TAB Q W E R T Y U I O P { } \|` |
+| 2 | `FN SHIFT A S D F G H J K L : " ENT` |
+| 3 | `CTL OPT ALT Z X C V B N M < > ? SPC` |
+
+### FN Layer
+
+| Row | Keys |
+|-----|------|
+| 0 | `ESC F1 F2 F3 F4 F5 F6 F7 F8 F9 F10 _ = DEL` |
+| 1 | `TAB q w e r t y u i o p [ ] \` |
+| 2 | `FN SHIFT a s d f g h j k l UP ' ENT` |
+| 3 | `CTL OPT ALT z x c v b n m LEFT DOWN RIGHT SPC` |
+
+---
+
+## Complete Examples
+
+### Right-handed: Input "h"
+
+```
+1. Touch right edge at mid-height → Row 2 selected
+2. Slide left to column 7 → Preview shows "h"
+3. Release → Output ['h']
+```
+
+### Left-handed: Input "h"
+
+```
+1. Touch left edge at mid-height → Row 2 selected
+2. Slide right to column 7 → Preview shows "h"
+3. Release → Output ['h']
+```
+
+### Input "Ctrl+C"
+
+```
+1. Touch right edge bottom → Row 3
+2. Slide to column 0 (CTL) → Release → Lock CTL (shows C)
+3. Touch right edge mid → Row 2
+4. Slide to column 3 (c) → Preview shows "c"
+5. Release → Output ['CTL', 'c'], CTL auto-unlocks
+```
+
+### Use G0 Menu
+
+```
+1. Press G0 button → Output ['G0']
+2. App opens menu
+3. Use touch to navigate
+4. Press G0 again → Close menu
+```
+
+---
+
+## Summary
+
+| Method | Trigger | Output | Use Case |
+|--------|---------|--------|----------|
+| **Edge-slide** | Left/right edge | Keys/characters | Primary text input |
+| **Canvas gesture** | Canvas area | ENT/direction keys | Quick actions/gaming |
+| **ESC tap** | ESC area | ESC | Cancel/exit |
+| **G0 button** | GPIO9 physical | G0 | Menu operations |
+
+---
+
+## Advantages
+
+| Feature | Benefit |
+|---------|---------|
+| **Left/right symmetric** | Works for both hands |
+| **One-handed** | Thumb operation from either side |
+| **Step-by-step** | Row first, then column → fewer errors |
+| **Real-time preview** | See selection before committing |
+| **Quick gestures** | Fast access to common actions |
+| **Physical G0** | Reliable menu trigger |
+| **Lock keys** | FN/SHIFT/CTL/ALT/OPT persistent states |
 
 
 # Installing Apps:
