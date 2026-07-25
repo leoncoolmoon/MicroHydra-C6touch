@@ -81,7 +81,7 @@ A touchscreen virtual keyboard that uses **edge-sliding from both left and right
   │ Touch  │   (Full Row Key Preview)     │ Touch  │
   │  Zone  ├──────────────────────────────┤  Zone  │
   │        │                              │        │
-  │  Left  │  Canvas（MicroHydro） Area   │ Right  │
+  │  Left  │  Canvas(MicroHydro) Area     │ Right  │
   │Preview │     Gesture Main Zone        │Preview │
   │        │                              │        │
   └────────┴──────────────────────────────┴────────┘
