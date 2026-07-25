@@ -191,7 +191,7 @@ Lock badge shows currently locked keys:
 | 2 | `FN SHIFT a s d f g h j k l UP ' ENT` |
 | 3 | `CTL OPT ALT z x c v b n m LEFT DOWN RIGHT SPC` |
 
-
+---
 
 
 # Installing Apps:
