@@ -22,8 +22,9 @@
 </p>
 
 
-# MicroHydra
-MicroHydra is a simple MicroPython based app launcher with some OS-like features.
+# MicroHydra-C6touch
+MicroHydra-C6touch based on MicroHydra, a simple MicroPython based app launcher with some OS-like features. Add support for [ESP32-C6-Touch-LCD-1.47](https://docs.waveshare.com/ESP32-C6-Touch-LCD-1.47)
+Add special touch slid keybroad, improve the menu in launcher and file
 
 <p align="center">
   <img src="https://github.com/echo-lalia/Cardputer-MicroHydra/assets/108598670/15b78e4b-64fc-433a-86d3-979362abd9ab" alt="Microhydra Banner"/>
