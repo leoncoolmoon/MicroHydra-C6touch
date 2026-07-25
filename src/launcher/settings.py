@@ -20,7 +20,7 @@ from lib.hydra import config
 from lib.hydra import menu as hydramenu
 from lib.hydra.i18n import I18n
 from lib.hydra.popup import UIOverlay
-#from lib.sdcard import SDCard
+from lib.sdcard import SDCard
 
 
 # make the animations smooth :)

@@ -11,7 +11,7 @@ from .cursor import Cursor
 from .undomanager import UndoManager
 
 from esp32 import NVS
-#from lib.sdcard import SDCard
+from lib.sdcard import SDCard
 from lib.display import Display
 from lib.hydra.config import Config
 from lib.userinput import UserInput
@@ -55,7 +55,7 @@ _FILE_BROWSER = const("/launcher/files")
 # increased to full freq.
 #machine.freq(240_000_000)
 # sd needs to be mounted for any files in /sd
-#SDCard().mount()
+SDCard().mount()
 
 
 

@@ -67,6 +67,7 @@ import jd9853
 import lvgl as lv
 from array import array
 from .displaycore import DisplayCore
+from lib import hardware
 
 
 
@@ -104,15 +105,7 @@ class JD9853Display(DisplayCore):
             width: int,
             height: int,
             *,
-            spi_host: int,
-            mosi: int,
-            sck: int,
-            reset: int,
-            cs: int,
-            dc: int,
-            backlight,
             rotation: int = 0,
-            freq: int = 2_000_000,
             offset_x: int = 0,
             offset_y: int = 0,
             use_tiny_buf: bool = False,
@@ -145,15 +138,13 @@ class JD9853Display(DisplayCore):
         self._width = width
         self._height = height
         self._rotation = rotation
-        self._spi_freq = freq
         self.utf8_font = open("/font/utf8_8x8.bin", "rb", buffering = 0) 
         # === 1. 初始化硬件 ===
         lv.init()
           
-
-        self.spi_bus = machine.SPI.Bus(host=spi_host, mosi=mosi, sck=sck)
-        self.display_bus = lcd_bus.SPIBus(spi_bus=self.spi_bus, freq=freq, dc=dc, cs=cs)
-
+        self.spi_bus = hardware.get_spi_bus()
+        self.display_bus = lcd_bus.SPIBus(spi_bus=self.spi_bus, freq=hardware.MH_DISPLAY_FREQ, dc=hardware.MH_DISPLAY_DC, cs=hardware.MH_DISPLAY_CS)
+        
         # === 2. 根据 rotation 计算屏幕的物理(旋转后)尺寸 ===
         # rotation 为奇数(1/3)时，DisplayCore 内部会把 fbuf 的宽高对调
         # （见 DisplayCore.__init__ 里的 height/width 互换逻辑）。
@@ -214,8 +205,8 @@ class JD9853Display(DisplayCore):
             display_width=width,
             display_height=height,
             frame_buffer1=self._img_buf,
-            backlight_pin=backlight,
-            reset_pin=reset,
+            backlight_pin=hardware.MH_DISPLAY_BACKLIGHT,
+            reset_pin=hardware.MH_DISPLAY_RESET,
             reset_state=jd9853.STATE_LOW,
             backlight_on_state=jd9853.STATE_PWM,
             color_space=lv.COLOR_FORMAT.RGB565,
@@ -227,7 +218,7 @@ class JD9853Display(DisplayCore):
         self.display.set_power(True)
         self.display.init()
         self.display.set_color_inversion(True)
-
+        
         # 硬件旋转：方向表补丁 + 正确的 offset_x/offset_y（由调用方传入）
         # 都到位之后，这里才能正确生效。
         try:
@@ -317,7 +308,15 @@ class JD9853Display(DisplayCore):
             **kwargs,
         )
     
-            
+    def _ensure_display_mode(self):
+        """切换到显示频率"""
+        if hasattr(self, '_spi_controller'):
+            try:
+                self.display_bus.init(freq=hardware.MH_DISPLAY_FREQ)
+                
+                print(f"切换到显示频率: {hardware.MH_DISPLAY_FREQ}Hz")
+            except Exception as e:
+                print(f"切换显示频率失败: {e}")  
     # ------------------------------------------------------------------
     def _free_img_buf(self):
         """释放通过 display_bus.allocate_framebuffer() 分配的 DMA 中转
@@ -411,6 +410,7 @@ class JD9853Display(DisplayCore):
 
     def show(self):
         """把 DisplayCore 已经画好的 framebuffer 刷新到屏幕上。"""
+        self._ensure_display_mode()
         y_min, y_max = self.reset_show_y()
 
         # 如果没有变化，仍然需要处理 LVGL 事件

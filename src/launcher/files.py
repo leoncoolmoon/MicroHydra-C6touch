@@ -10,7 +10,7 @@ import os
 import time
 
 from font import vga2_16x32 as font
-from lib import userinput #,sdcard
+from lib import userinput, sdcard
 from lib.display import Display
 from lib.hydra import beeper, popup, loader
 from lib.hydra.config import Config
@@ -95,9 +95,8 @@ kb = userinput.UserInput()
 config = Config()
 beep = beeper.Beeper()
 overlay = popup.UIOverlay(i18n=I18N)
-
-#sd = sdcard.SDCard()
-
+print("init sd")
+sd = sdcard.SDCard()
 # copied_file = None
 clipboard = None
 
@@ -322,14 +321,22 @@ def ext_options(overlay):
     """Create popup with options for new file or directory."""
     cwd = os.getcwd()
 
-    options = ["Paste", "New Directory", "New File", "Refresh", "Exit to launcher"]
+    options = ["..", "Paste", "New Directory", "New File", "Refresh", "Exit to launcher"]
 
     if clipboard is None:
         # dont give the paste option if there's nothing to paste.
+        options.pop(1)
+    if cwd == "/":
         options.pop(0)
-
+        
     option = overlay.popup_options(options, title=f"{cwd}:")
-    if option == "New Directory":
+    
+    if option == "..":
+        beep.play(("G3", "B3", "D3"), 30)
+        prev_dir()
+        #file_list, dir_dict = refresh_files(view)
+        
+    elif option == "New Directory":
         beep.play(("D3"), 30)
         name = overlay.text_entry(title="Directory name:")
         beep.play(("G3"), 30)
@@ -350,7 +357,7 @@ def ext_options(overlay):
 
     elif option == "Refresh":
         beep.play(("B3", "G3", "D3"), 30)
-        #sd.mount()
+        sd.mount()
         os.sync()
 
     elif option == "Paste":
@@ -554,7 +561,7 @@ def main_loop(tft, kb, config, overlay):
     """Run the main loop."""
 
     new_keys = kb.get_new_keys()
-    #sd.mount()
+    sd.mount()
     file_list, dir_dict = parse_files()
 
     view = ListView(tft, config, file_list, dir_dict)

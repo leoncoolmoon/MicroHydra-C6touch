@@ -649,19 +649,23 @@ def try_sync_clock():
 
 def ext_options(overlay):
     """Create popup with options for new file or directory."""
-    options = [ "Reset","USB Mode"]
+    options = [ "Reset","Sleep","USB Mode"]
     ip_address = NIC.ifconfig()[0] if (NIC and NIC.isconnected()) else ""
     option = overlay.popup_options(options, title=f"Option - {ip_address}")
     if option == "Reset":
         overlay.draw_textbox("Restarting...")
         DISPLAY.show()
         machine.reset()
-
+    elif option == "Sleep":
+        overlay.draw_textbox("Sleep...")
+        DISPLAY.show()
+        #raise KeyboardInterrupt("程序已手动停止，REPL 已就绪。")
+        launch_app("/lib/hydra/sleep")
     elif option == "USB Mode":
         overlay.draw_textbox("USB Mode...")
         DISPLAY.show()
         #raise KeyboardInterrupt("程序已手动停止，REPL 已就绪。")
-        launch_app("/lib/replMode")
+        launch_app("/lib/hydra/replMode")
 
 
 def launch():

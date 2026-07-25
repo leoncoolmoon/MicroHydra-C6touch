@@ -1,9 +1,5 @@
-# mh_include_if shared_sdcard_spi:
-"""MicroPython driver for SD cards using SPI bus.
-
-Sourced from:
-<https://github.com/micropython/micropython-lib/blob/master/micropython/drivers/storage/sdcard/sdcard.py>
-
+"""
+MicroPython driver for SD cards using SPI bus.
 
 Requires an SPI bus and a CS pin.  Provides readblocks and writeblocks
 methods so the device can be mounted as a filesystem.
@@ -22,28 +18,6 @@ Example usage on ESP8266:
     os.mount(sd, '/sd')
     os.listdir('/')
 
-
-The MIT License (MIT)
-
-Copyright (c) 2013, 2014 micropython-lib contributors
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
 """
 
 from micropython import const
@@ -64,9 +38,17 @@ _TOKEN_STOP_TRAN = const(0xFD)
 _TOKEN_DATA = const(0xFE)
 
 
+def _crc7(buf, n):
+    crc = 0
+    for i in range(n):
+        crc ^= buf[i]
+        for j in range(8):
+            crc = ((crc << 1) ^ (0x12 * (crc >> 7))) & 0xFF
+    return crc
+
+
 class _SDCard:
     def __init__(self, spi, cs, baudrate=1320000):
-        print("SDcard")
         self.spi = spi
         self.cs = cs
 
@@ -77,10 +59,8 @@ class _SDCard:
             self.dummybuf[i] = 0xFF
         self.dummybuf_memoryview = memoryview(self.dummybuf)
 
-        self.baudrate = baudrate
-
         # initialise the card
-        self.init_card()
+        self.init_card(baudrate)
 
     def init_spi(self, baudrate):
         try:
@@ -92,7 +72,7 @@ class _SDCard:
             # on pyboard
             self.spi.init(master, baudrate=baudrate, phase=0, polarity=0)
 
-    def init_card(self):
+    def init_card(self, baudrate):
         # init CS pin
         self.cs.init(self.cs.OUT, value=1)
 
@@ -105,13 +85,13 @@ class _SDCard:
 
         # CMD0: init card; should return _R1_IDLE_STATE (allow 5 attempts)
         for _ in range(5):
-            if self.cmd(0, 0, 0x95) == _R1_IDLE_STATE:
+            if self.cmd(0, 0) == _R1_IDLE_STATE:
                 break
         else:
             raise OSError("no SD card")
 
         # CMD8: determine card version
-        r = self.cmd(8, 0x01AA, 0x87, 4)
+        r = self.cmd(8, 0x01AA, 4)
         if r == _R1_IDLE_STATE:
             self.init_card_v2()
         elif r == (_R1_IDLE_STATE | _R1_ILLEGAL_COMMAND):
@@ -121,12 +101,12 @@ class _SDCard:
 
         # get the number of sectors
         # CMD9: response R2 (R1 byte + 16-byte block read)
-        if self.cmd(9, 0, 0, 0, False) != 0:
+        if self.cmd(9, 0, 0, False) != 0:
             raise OSError("no response from SD card")
         csd = bytearray(16)
         self.readinto(csd)
         if csd[0] & 0xC0 == 0x40:  # CSD version 2.0
-            self.sectors = ((csd[8] << 8 | csd[9]) + 1) * 1024
+            self.sectors = ((csd[7] << 16 | csd[8] << 8 | csd[9]) + 1) * 1024
         elif csd[0] & 0xC0 == 0x00:  # CSD version 1.0 (old, <=2GB)
             c_size = (csd[6] & 0b11) << 10 | csd[7] << 2 | csd[8] >> 6
             c_size_mult = (csd[9] & 0b11) << 1 | csd[10] >> 7
@@ -138,18 +118,17 @@ class _SDCard:
         # print('sectors', self.sectors)
 
         # CMD16: set block length to 512 bytes
-        if self.cmd(16, 512, 0) != 0:
+        if self.cmd(16, 512) != 0:
             raise OSError("can't set 512 block size")
 
         # set to high data rate now that it's initialised
-        self.init_spi(self.baudrate)
+        self.init_spi(baudrate)
 
     def init_card_v1(self):
-        print("SDcardv1")
         for i in range(_CMD_TIMEOUT):
             time.sleep_ms(50)
-            self.cmd(55, 0, 0)
-            if self.cmd(41, 0, 0) == 0:
+            self.cmd(55, 0)
+            if self.cmd(41, 0) == 0:
                 # SDSC card, uses byte addressing in read/write/erase commands
                 self.cdv = 512
                 # print("[SDCard] v1 card")
@@ -157,13 +136,12 @@ class _SDCard:
         raise OSError("timeout waiting for v1 card")
 
     def init_card_v2(self):
-        print("SDcardv2")
         for i in range(_CMD_TIMEOUT):
             time.sleep_ms(50)
-            self.cmd(58, 0, 0, 4)
-            self.cmd(55, 0, 0)
-            if self.cmd(41, 0x40000000, 0) == 0:
-                self.cmd(58, 0, 0, -4)  # 4-byte response, negative means keep the first byte
+            self.cmd(58, 0, 4)
+            self.cmd(55, 0)
+            if self.cmd(41, 0x40000000) == 0:
+                self.cmd(58, 0, -4)  # 4-byte response, negative means keep the first byte
                 ocr = self.tokenbuf[0]  # get first byte of response, which is OCR
                 if not ocr & 0x40:
                     # SDSC card, uses byte addressing in read/write/erase commands
@@ -175,8 +153,7 @@ class _SDCard:
                 return
         raise OSError("timeout waiting for v2 card")
 
-    def cmd(self, cmd, arg, crc, final=0, release=True, skip1=False):
-        self.spi.init(baudrate=self.baudrate)
+    def cmd(self, cmd, arg, final=0, release=True, skip1=False):
         self.cs(0)
 
         # create and send the command
@@ -186,7 +163,7 @@ class _SDCard:
         buf[2] = arg >> 16
         buf[3] = arg >> 8
         buf[4] = arg
-        buf[5] = crc
+        buf[5] = _crc7(buf, 5) | 0x01  # ensure stop bit is always set
         self.spi.write(buf)
 
         if skip1:
@@ -216,7 +193,6 @@ class _SDCard:
 
     def readinto(self, buf):
         self.cs(0)
-        self.spi.init(baudrate=self.baudrate)
 
         # read until start byte (0xff)
         for i in range(_CMD_TIMEOUT):
@@ -243,7 +219,6 @@ class _SDCard:
 
     def write(self, token, buf):
         self.cs(0)
-        self.spi.init(baudrate=self.baudrate)
 
         # send: start of block, data, checksum
         self.spi.read(1, token)
@@ -265,7 +240,6 @@ class _SDCard:
         self.spi.write(b"\xff")
 
     def write_token(self, token):
-        self.spi.init(baudrate=self.baudrate)
         self.cs(0)
         self.spi.read(1, token)
         self.spi.write(b"\xff")
@@ -277,7 +251,6 @@ class _SDCard:
         self.spi.write(b"\xff")
 
     def readblocks(self, block_num, buf):
-        self.spi.init(baudrate=self.baudrate)
         # workaround for shared bus, required for (at least) some Kingston
         # devices, ensure MOSI is high before starting transaction
         self.spi.write(b"\xff")
@@ -286,7 +259,7 @@ class _SDCard:
         assert nblocks and not len(buf) % 512, "Buffer length is invalid"
         if nblocks == 1:
             # CMD17: set read address for single block
-            if self.cmd(17, block_num * self.cdv, 0, release=False) != 0:
+            if self.cmd(17, block_num * self.cdv, release=False) != 0:
                 # release the card
                 self.cs(1)
                 raise OSError(5)  # EIO
@@ -294,7 +267,7 @@ class _SDCard:
             self.readinto(buf)
         else:
             # CMD18: set read address for multiple blocks
-            if self.cmd(18, block_num * self.cdv, 0, release=False) != 0:
+            if self.cmd(18, block_num * self.cdv, release=False) != 0:
                 # release the card
                 self.cs(1)
                 raise OSError(5)  # EIO
@@ -305,11 +278,10 @@ class _SDCard:
                 self.readinto(mv[offset : offset + 512])
                 offset += 512
                 nblocks -= 1
-            if self.cmd(12, 0, 0xFF, skip1=True):
+            if self.cmd(12, 0, skip1=True):
                 raise OSError(5)  # EIO
 
     def writeblocks(self, block_num, buf):
-        self.spi.init(baudrate=self.baudrate)
         # workaround for shared bus, required for (at least) some Kingston
         # devices, ensure MOSI is high before starting transaction
         self.spi.write(b"\xff")
@@ -318,14 +290,14 @@ class _SDCard:
         assert nblocks and not err, "Buffer length is invalid"
         if nblocks == 1:
             # CMD24: set write address for single block
-            if self.cmd(24, block_num * self.cdv, 0) != 0:
+            if self.cmd(24, block_num * self.cdv) != 0:
                 raise OSError(5)  # EIO
 
             # send the data
             self.write(_TOKEN_DATA, buf)
         else:
             # CMD25: set write address for first block
-            if self.cmd(25, block_num * self.cdv, 0) != 0:
+            if self.cmd(25, block_num * self.cdv) != 0:
                 raise OSError(5)  # EIO
             # send the data
             offset = 0

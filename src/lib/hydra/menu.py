@@ -240,6 +240,7 @@ class Menu:
         kb = UserInput.instance if hasattr(UserInput, 'instance') else UserInput()
         updating_display = True
         self.running = True
+        keys = kb.get_new_keys()
         while self.running:
             keys = kb.get_new_keys()
 

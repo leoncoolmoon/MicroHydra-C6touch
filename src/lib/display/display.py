@@ -5,14 +5,6 @@ from .jd9853_display import JD9853Display
 # ~~~~~ Magic constants (ESP32-C6-Touch-LCD-1.47 / jd9853): ~~~~~
 _MH_DISPLAY_HEIGHT = const(320)
 _MH_DISPLAY_WIDTH = const(172)
-_MH_DISPLAY_SPI_ID = const(1)
-_MH_DISPLAY_FREQ = const(40_000_000)
-_MH_DISPLAY_SCK = const(1)
-_MH_DISPLAY_MOSI = const(2)
-_MH_DISPLAY_RESET = const(22)
-_MH_DISPLAY_CS = const(14)
-_MH_DISPLAY_DC = const(15)
-_MH_DISPLAY_BACKLIGHT = const(23)
 _MH_DISPLAY_ROTATION = const(1)
 _MH_DISPLAY_OFFSET_X = const(0)
 _MH_DISPLAY_OFFSET_Y = const(34)
@@ -48,15 +40,7 @@ class Display(JD9853Display):
         super().__init__(
             _MH_DISPLAY_WIDTH,
             _MH_DISPLAY_HEIGHT,
-            spi_host=_MH_DISPLAY_SPI_ID,
-            mosi=_MH_DISPLAY_MOSI,
-            sck=_MH_DISPLAY_SCK,
-            reset=_MH_DISPLAY_RESET,
-            cs=_MH_DISPLAY_CS,
-            dc=_MH_DISPLAY_DC,
-            backlight=_MH_DISPLAY_BACKLIGHT,
             rotation=_MH_DISPLAY_ROTATION,
-            freq=_MH_DISPLAY_FREQ,
             offset_x=_MH_DISPLAY_OFFSET_X,
             offset_y=_MH_DISPLAY_OFFSET_Y,
             use_tiny_buf=use_tiny_buf,
