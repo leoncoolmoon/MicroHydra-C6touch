@@ -154,7 +154,7 @@ Step 3: Release in Canvas → confirm input
 
 | Gesture | Condition | Output |
 |---------|-----------|--------|
-| **Tap** | Movement < 20px | `['ENT']` |
+| **Tap** | Movement < 20px, >100ms | `['ENT']` |
 | **Swipe Right** | ≥20px right | `['LEFT']` |
 | **Swipe Left** | ≥20px left | `['RIGHT']` |
 | **Swipe Up** | ≥20px up | `['UP']` |
