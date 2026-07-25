@@ -24,7 +24,7 @@
 
 # MicroHydra-C6touch
 MicroHydra-C6touch based on MicroHydra, a simple MicroPython based app launcher with some OS-like features. 
-Support for [ESP32-C6-Touch-LCD-1.47](https://docs.waveshare.com/ESP32-C6-Touch-LCD-1.47)（original 240x135 res）the blank space is used for a special touch slid keybroad 
+Support for [ESP32-C6-Touch-LCD-1.47](https://docs.waveshare.com/ESP32-C6-Touch-LCD-1.47) with a special touch slid keybroad 
 improve the menu in launcher and file.
 You can find the firmware in the devices folder
 
