@@ -169,27 +169,11 @@ class UserInput(_keys.Keys):
 
         return keylist
 
-        '''
-    def get_new_keys(self) -> list[str]:
-        """Return a list of keys which are newly pressed."""
-        self.populate_tracker()
 
-        if self.locking_keys:
-            self.handle_locking_keys()
-
-        self.get_pressed_keys()
-        keylist = self._get_new_keys()
-
-        if self.use_sys_commands:
-            self.system_commands(keylist)
-
-        return keylist
-'''
     def get_new_keys(self) -> list:
-        """获取新按键列表"""
-        keylist = []
         
-        # 物理按键处理
+        keylist = []
+
         try:
             self.populate_tracker()
             if self.locking_keys:
@@ -200,53 +184,23 @@ class UserInput(_keys.Keys):
                 self.system_commands(keylist)
         except Exception as e:
             # MicroPython 的简单错误处理
-            #print("no physical key input:", e)
+            #print("no key input:", e)
             pass
-        
-        # 触摸事件处理（优先级更高）
-        try:
-            '''
-            touch_events = self.get_touch_events()
-            if touch_events:
-                # 只处理第一个触摸事件（简化）
-                event = touch_events[0]
-                print("user_touch_event=", event)
-                
-                event_type = type(event).__name__
-                if event_type == 'Swipe':
-                    if event.direction == 'RIGHT':
-                        keylist = ['LEFT']
-                    elif event.direction == 'LEFT':
-                        keylist = ['RIGHT']
-                    elif event.direction == 'UP':
-                        keylist = ['UP']
-                    elif event.direction == 'DOWN':
-                        keylist = ['DOWN']
-                elif event_type == 'Tap':#虚拟键盘
-                    if event.x < 240:
-                        keylist = ['ENT']
-                    elif event.y < 86:
-                        keylist = ['ESC']
-                    else:
-                        keylist = ['OPT']
-                    #event.x
-                    #event.y
-                '''
-            vkey_out = self.vkey.update(self.get_current_points())
-            if vkey_out:
-                keylist = vkey_out
-        except Exception as e:
-            print("no touch key input:", e)
-            pass
+
         #print(f"key={keylist}")
         return keylist
 
 
 
     def get_pressed_keys(self) -> list[str]:
-        """Get list of currently pressed keys."""
+        
         if not getattr(self, 'hardware_available', False):
-            return []
+            self.vkey.update(self.get_current_points())
+            self.key_state = self.vkey.get_pressed_keys(
+                force_fn=('FN' in self.locked_keys),
+                force_shift=('SHIFT' in self.locked_keys),
+                )
+            return self.key_state
         return super().get_pressed_keys(
             force_fn=('FN' in self.locked_keys),
             force_shift=('SHIFT' in self.locked_keys),
@@ -389,4 +343,3 @@ class UserInput(_keys.Keys):
 
             display.text(key_txt, x, _PADDING + 2, display.palette[txt_clr])
             width = x - _RADIUS - _PADDING
-
