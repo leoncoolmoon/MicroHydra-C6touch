@@ -173,27 +173,34 @@ class UserInput(_keys.Keys):
     def get_new_keys(self) -> list:
         
         keylist = []
+        if getattr(self, 'hardware_available', False):
 
-        try:
-            self.populate_tracker()
-            if self.locking_keys:
-                self.handle_locking_keys()
-            self.get_pressed_keys()
-            keylist = self._get_new_keys()
-            if self.use_sys_commands:
-                self.system_commands(keylist)
-        except Exception as e:
-            # MicroPython 的简单错误处理
-            #print("no key input:", e)
-            pass
-
-        #print(f"key={keylist}")
+            try:
+                self.populate_tracker()
+                if self.locking_keys:
+                    self.handle_locking_keys()
+                self.get_pressed_keys()
+                keylist = self._get_new_keys()
+                if self.use_sys_commands:
+                    self.system_commands(keylist)
+            except Exception as e:
+                # MicroPython 的简单错误处理
+                #print("no key input:", e)
+                pass
+        else:
+            try:
+                vkey_out = self.vkey.update(self.get_current_points())
+                if vkey_out:
+                    keylist = vkey_out
+            except Exception as e:
+                print("no touch key input:", e)
+                pass
+            #print(f"key={keylist}")
         return keylist
 
 
 
     def get_pressed_keys(self) -> list[str]:
-        
         if not getattr(self, 'hardware_available', False):
             self.vkey.update(self.get_current_points())
             self.key_state = self.vkey.get_pressed_keys(
