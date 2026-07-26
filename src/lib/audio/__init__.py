@@ -6,9 +6,9 @@ This module provides a simple API for accessing audio features in MicroHydra.
 from .i2ssound import I2SSound
 
 
-_MH_I2S_SCK = const(7)
-_MH_I2S_WS = const(8)
-_MH_I2S_SD = const(9)
+_MH_I2S_SCK = const(8)
+_MH_I2S_WS = const(16)
+_MH_I2S_SD = const(17)
 
 
 
