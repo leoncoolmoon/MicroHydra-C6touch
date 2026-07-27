@@ -8,6 +8,8 @@ _MH_DISPLAY_WIDTH = const(172)
 _MH_DISPLAY_ROTATION = const(1)
 _MH_DISPLAY_OFFSET_X = const(0)
 _MH_DISPLAY_OFFSET_Y = const(34)
+_MH_DISPLAY_BACKLIGHT = const(23)
+
 s_height = const(135)
 s_width = const(240)
 s_top = const(37)
@@ -43,6 +45,7 @@ class Display(JD9853Display):
             rotation=_MH_DISPLAY_ROTATION,
             offset_x=_MH_DISPLAY_OFFSET_X,
             offset_y=_MH_DISPLAY_OFFSET_Y,
+            backlight=machine.Pin(_MH_DISPLAY_BACKLIGHT, machine.Pin.OUT),
             use_tiny_buf=use_tiny_buf,
             content_width=s_width,
             content_height=s_height,

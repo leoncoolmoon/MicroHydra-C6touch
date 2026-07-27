@@ -197,9 +197,8 @@ class VKey:
 
         self.key_state = []
         self.key_state_record = []
-        self._g0 = g0_pin
-        self.G0 = machine.Pin(g0_pin, machine.Pin.IN, machine.Pin.PULL_UP) \
-            if g0_pin is not None else None
+        self.G0 = machine.Pin(g0_pin, machine.Pin.IN, machine.Pin.PULL_UP) if g0_pin is not None else None
+        print (self.G0.value())
         self._build_widgets(preview_font, badge_font, row_preview_font, row_preview_small_font)
 
     def _build_widgets(self, preview_font, badge_font, row_preview_font, row_preview_small_font):
@@ -305,19 +304,19 @@ class VKey:
         label.set_text('')
         return label
 
+        
     def update(self, points):
+       # print (self.G0.value())
         output = self._update_impl(points)
-        g0k = self._g0_pressed()
-        self.key_state = ['G0'] if g0k else output
+        self.key_state = ['G0'] if self.G0.value() == 0 else output
         self.add2queue(self.key_state)
         return self.key_state
-
-    def _g0_pressed(self):
-        return self.G0 is not None and self.G0.value() == 1
 
     def get_pressed_keys(self, *, force_fn=False, force_shift=False):  # noqa: ARG002
         
         #print(f"key_state_record={self.key_state_record}")
+        #print (self.G0.value())
+        
         now = _ticks_ms()
         while self.key_state_record and _ticks_diff(now, self.key_state_record[0]['timestamp']) > 300:
             self.key_state_record.pop(0)

@@ -5,7 +5,7 @@ import framebuf
 from .palette import Palette
 import lib.hydra.config
 from lib.hydra.utils import get_instance
-
+from machine import PWM
 # mh_if frozen:
 # # frozen firmware must access the font as a module,
 # # rather than a binary file.
@@ -88,22 +88,17 @@ class DisplayCore:
         self.width = height if (rotation % 2 == 1) else width
         self.height = width if (rotation % 2 == 1) else height
         self.needs_swap = needs_swap
-        self.backlight = backlight  # 保存 display 对象引用，用于后续背光控制
-        self._brightness = 100  # 默认亮度 100%
+        self.backlight = PWM(backlight, freq=1000, duty_u16=0) if backlight is not None else None
 
 
     # ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ DisplayCore utils: ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     def set_brightness(self, brightness: int):
-        """Set backlight brightness using value 0-100."""
-        # 限制亮度值在 0-100 范围内
-        if brightness < 0:
-            brightness = 0
-        elif brightness > 100:
-            brightness = 100
-        
-        self._brightness = brightness
-        if self.backlight is not None and hasattr(self.backlight, 'set_backlight'):
-            self.backlight.set_backlight(brightness)
+        """Set backlight PWM using value 0-10."""
+        _MAX_BRIGHT = const(65535)
+        _MIN_BRIGHT = const(20000)
+        _BRIGHT_STEP = const((_MAX_BRIGHT - _MIN_BRIGHT) // 10)
+        brightness = _MAX_BRIGHT if brightness == 10 else _MIN_BRIGHT + _BRIGHT_STEP * brightness
+        self.backlight.duty_u16(brightness)
 
 
     def reset_show_y(self) -> tuple[int, int]:

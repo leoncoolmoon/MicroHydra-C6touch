@@ -228,7 +228,7 @@ class JD9853Display(DisplayCore):
             print(f"[警告] set_rotation 失败: {e}")
             print("可用的 lv.DISPLAY_ROTATION 属性:", dir(lv.DISPLAY_ROTATION))
 
-        self.display.set_backlight(100)
+        #self.display.set_backlight(100)
 
         # === 关键：必须创建 TaskHandler 并保留引用 ===
         # lvgl_micropython 的显示驱动依赖 TaskHandler 来驱动
@@ -301,12 +301,13 @@ class JD9853Display(DisplayCore):
         super().__init__(
             core_width, core_height,
             rotation=rotation,
-            backlight=None,  # 不让 DisplayCore 管理背光
             use_tiny_buf=use_tiny_buf,
             needs_swap=False,  # 由 jd9853 处理字节序
             reserved_bytearray=core_reserved_buf,
             **kwargs,
         )
+        if self.backlight:
+            self.set_brightness(self.config['brightness'])
     
     def _ensure_display_mode(self):
         """切换到显示频率"""
@@ -370,12 +371,12 @@ class JD9853Display(DisplayCore):
         
     def set_power(self, power_on: bool):
         self.display.set_power(power_on)
-
+        '''
     def set_brightness(self, brightness: int):
         """0-10 映射到 0-100，走 jd9853 自己的背光接口。"""
         pct = max(0, min(100, brightness * 10))
         self.display.set_backlight(pct)
-
+        '''
     def sleep_mode(self, enable: bool):
         """进入/退出睡眠模式。"""
         self.display.set_power(not enable)

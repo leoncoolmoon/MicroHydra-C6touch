@@ -138,7 +138,7 @@ BEEP = beeper.Beeper()
 CONFIG = Config()
 KB = userinput.UserInput()
 STATUSBAR = statusbar.StatusBar()
-
+ip_address = ""
 #SD = sdcard.SDCard() #阻止显示
 RTC = machine.RTC()
 
@@ -577,7 +577,12 @@ class IconWidget:
         self.prev_x = self.x
         self.x = (x + _DISPLAY_WIDTH_HALF) % _MH_DISPLAY_WIDTH
 
-
+    def redraw_all(icon):
+        """强制全屏重绘，用于弹窗/菜单关闭后恢复界面。"""
+        DISPLAY.fill(CONFIG.palette[2])   # 整屏清成背景色
+        icon.force_update()               # 重画滚动条 + app 名，并让 icon.draw() 不会被"位置未变"短路
+        icon.draw()                       # 重画图标
+        display.Display.draw_overlays = True  # 顺带让状态栏也重绘（参考633行NTP同步成功后的写法）
 
 
 _APP_NAME_MAX_LEN = const(_MH_DISPLAY_WIDTH // _FONT_WIDTH)
@@ -612,8 +617,10 @@ _MAX_NTP_ATTEMPTS = const(10)
 
 def try_sync_clock():
     """Try syncing the RTC using ntptime."""
-    global SYNCING_CLOCK, SYNC_NTP_ATTEMPTS, CONNECT_WIFI_ATTEMPTS  # noqa: PLW0603
+    global SYNCING_CLOCK, SYNC_NTP_ATTEMPTS, CONNECT_WIFI_ATTEMPTS, ip_address  # noqa: PLW0603
     if NIC.isconnected():
+        ip_address = NIC.ifconfig()[0]
+        print(f"connected to {ip_address}")
         try:
             ntptime.settime()
         except OSError:
@@ -650,7 +657,6 @@ def try_sync_clock():
 def ext_options(overlay):
     """Create popup with options for new file or directory."""
     options = [ "Reset","Sleep","USB Mode"]
-    ip_address = NIC.ifconfig()[0] if (NIC and NIC.isconnected()) else ""
     option = overlay.popup_options(options, title=f"Option - {ip_address}")
     if option == "Reset":
         overlay.draw_textbox("Restarting...")
@@ -659,7 +665,6 @@ def ext_options(overlay):
     elif option == "Sleep":
         overlay.draw_textbox("Sleep...")
         DISPLAY.show()
-        #raise KeyboardInterrupt("程序已手动停止，REPL 已就绪。")
         launch_app("/lib/hydra/sleep")
     elif option == "USB Mode":
         overlay.draw_textbox("USB Mode...")
@@ -667,7 +672,8 @@ def ext_options(overlay):
         #raise KeyboardInterrupt("程序已手动停止，REPL 已就绪。")
         launch_app("/lib/hydra/replMode")
 
-
+        
+        
 def launch():
     # save CONFIG if it has been changed:
         CONFIG.save()
@@ -714,8 +720,6 @@ def main_loop():
             print("try connect WIFI")
             try:
                 NIC.connect(CONFIG['wifi_ssid'], CONFIG['wifi_pass'])
-                ip_address = NIC.ifconfig()[0] if (NIC and NIC.isconnected())   else ""
-                print(f"connected to {ip_address}")
             except OSError as e:
                 print("wifi_sync_rtc had this error when connecting:", e)
 
@@ -777,6 +781,7 @@ def main_loop():
             # ~~~~~~~~~~ check if GO or ENTER are pressed ~~~~~~~~~~
             if "G0" in new_keys:
                 ext_options(overlay)
+                icon.redraw_all()
             if "ENT" in new_keys:
 
                 # special "settings" app options will have their own behaviour, otherwise launch the app

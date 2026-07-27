@@ -336,7 +336,7 @@ class FileLines:
                     # this line is between the cursors. Highlight the whole thing.
                     highlight = (
                         0,
-                        min(len(self[line_idx]), 1),
+                        len(self[line_idx]),
                     )
 
                 elif line_idx == end_cursor.y:

@@ -83,6 +83,10 @@ FILE_HANDLERS = {
     "": "/launcher/editor",  # default
     "py": "/launcher/editor",
     "txt": "/launcher/editor",
+    "jpg": "/launcher/imgViewer",
+    "png": "/launcher/imgViewer",
+    "bmp": "/launcher/imgViewer",
+    "jpeg": "/launcher/imgViewer",
     }
 # mh_end_if
 

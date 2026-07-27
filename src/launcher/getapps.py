@@ -365,7 +365,7 @@ def main_loop():
 
                 elif key in {'ESC', 'BSPC'}:
                     NIC.active(False)
-                    machine.reset()
+                    loader.launch_app("")
 
                 elif len(key) == 1:
                     catalog_display.jump_to(key)
